@@ -75,7 +75,7 @@ It uses **OpenVINO™** for high-performance inference on Intel hardware (CPUs a
     ```
 
 4.  **Access the Dashboard**:
-    Open `http://localhost:8000` in your browser.
+    Open `http://localhost:8002` in your browser.
 
 ### Configuration
 
@@ -83,6 +83,7 @@ The application is configured via environment variables (defined in `docker-comp
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
+| `REID_PORT` | `8002` | Port to access the web dashboard |
 | `MQTT_BROKER` | `localhost` | MQTT Broker IP address |
 | `MQTT_PORT` | `1883` | MQTT Broker Port |
 | `FRIGATE_URL` | `http://localhost:5000` | Base URL for Frigate API |

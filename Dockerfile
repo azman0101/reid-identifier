@@ -46,7 +46,7 @@ ENV PYTHONPATH=/app
 RUN mkdir -p /models/gallery /models/unknown
 
 # Expose port
-EXPOSE 8000
+EXPOSE 8002
 
 # Run the application
-CMD ["uvicorn", "reid_app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "reid_app.main:app", "--host", "0.0.0.0", "--port", "8002"]

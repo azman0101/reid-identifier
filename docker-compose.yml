@@ -39,7 +39,7 @@ services:
     depends_on:
       - mqtt-broker
     ports:
-      - "8000:8000"
+      - "${REID_PORT:-8002}:8002"
     volumes:
       - ./models:/models
       - ./models/gallery:/models/gallery
@@ -53,8 +53,9 @@ services:
       - MQTT_PORT=${MQTT_PORT:-1883}
       - FRIGATE_URL=${FRIGATE_URL:-http://frigate:5000}
       - DEVICE_NAME=${DEVICE_NAME:-CPU}
+      - REID_PORT=${REID_PORT}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      test: ["CMD", "curl", "-f", "http://localhost:${REID_PORT}/"]
       interval: 30s
       timeout: 10s
       retries: 3
