@@ -11,6 +11,7 @@ from .config import settings
 from .reid_engine import ReIDCore
 from .model_manager import ensure_models_exist
 from .mqtt_frigate import start_mqtt
+from .database.sqlite_repo import SQLiteRepository
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,18 +20,23 @@ logger = logging.getLogger(__name__)
 # Global instances
 reid_core = None
 mqtt_worker = None
+db_repo = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting ReID App...")
 
-    # Ensure models exist (blocking call, but fast if files exist)
+    # Initialize DB
+    global db_repo
+    db_repo = SQLiteRepository()
+    db_repo.init_db()
+
+    # Ensure models exist
     try:
         ensure_models_exist()
     except Exception as e:
         logger.error(f"Failed to ensure models exist: {e}")
-        # Depending on criticality, maybe exit? But let's proceed and hope for the best or manual fix.
 
     # Initialize Core
     global reid_core
@@ -38,12 +44,11 @@ async def lifespan(app: FastAPI):
         reid_core = ReIDCore()
     except Exception as e:
         logger.error(f"Failed to initialize ReID Core: {e}")
-        # Without core, app is useless, but maybe we can serve error page?
 
     # Start MQTT
     global mqtt_worker
     if reid_core:
-        mqtt_worker = start_mqtt(reid_core)
+        mqtt_worker = start_mqtt(reid_core, db_repo)
 
     yield
 
@@ -63,26 +68,84 @@ app.mount("/unknown_imgs", StaticFiles(directory=settings.unknown_dir), name="un
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     try:
-        # Check if directories exist, create if not
+        # Check if directories exist
         if not os.path.exists(settings.unknown_dir):
             os.makedirs(settings.unknown_dir, exist_ok=True)
         if not os.path.exists(settings.gallery_dir):
             os.makedirs(settings.gallery_dir, exist_ok=True)
 
-        unknown_files = [f for f in os.listdir(settings.unknown_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-        gallery_files = [f for f in os.listdir(settings.gallery_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        # Retrieve events from DB for metadata
+        unknown_events = db_repo.get_events_by_label("unknown")
 
-        unknown_files.sort()
-        gallery_files.sort()
+        # Build list of unknown events
+        unknowns_data = []
+        for event in unknown_events:
+            filename = event['snapshot_path']
+            full_path = os.path.join(settings.unknown_dir, filename)
+            if filename and os.path.exists(full_path):
+                unknowns_data.append({
+                    "filename": filename,
+                    "event_id": event['id'],
+                    "camera": event['camera'],
+                    "timestamp": event['timestamp'].strftime("%Y-%m-%d %H:%M:%S")
+                })
+
+        # Also catch files on disk that might not be in DB (orphaned)
+        disk_files = set(f for f in os.listdir(settings.unknown_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png')))
+        db_files = set(u['filename'] for u in unknowns_data)
+        for f in disk_files:
+            if f not in db_files:
+                unknowns_data.append({
+                    "filename": f,
+                    "event_id": f.split('.')[0],
+                    "camera": "Unknown",
+                    "timestamp": "Unknown"
+                })
+
+        # For Gallery
+        gallery_files = sorted([f for f in os.listdir(settings.gallery_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
+        gallery_data = []
+        for f in gallery_files:
+            # Format: Label_ID.jpg
+            # Try to extract ID
+            parts = f.rsplit('.', 1)[0].split('_')
+
+            # If named correctly, last part is ID
+            if len(parts) >= 2:
+                event_id = parts[-1]
+                event = db_repo.get_event(event_id)
+                if event:
+                    gallery_data.append({
+                        "filename": f,
+                        "label": event['current_label'],
+                        "camera": event['camera'],
+                        "timestamp": event['timestamp'].strftime("%Y-%m-%d %H:%M")
+                    })
+                else:
+                    # File exists but no event record
+                    gallery_data.append({
+                        "filename": f,
+                        "label": parts[0],
+                        "camera": "-",
+                        "timestamp": "-"
+                    })
+            else:
+                 gallery_data.append({
+                        "filename": f,
+                        "label": f,
+                        "camera": "-",
+                        "timestamp": "-"
+                    })
+
     except Exception as e:
         logger.error(f"Error listing files: {e}")
-        unknown_files = []
-        gallery_files = []
+        unknowns_data = []
+        gallery_data = []
 
     return templates.TemplateResponse("index.html", {
         "request": request,
-        "unknowns": unknown_files,
-        "gallery": gallery_files
+        "unknowns": unknowns_data,
+        "gallery": gallery_data
     })
 
 @app.post("/label")
@@ -96,9 +159,8 @@ async def label_image(
         if not reid_core:
             return JSONResponse({"status": "error", "message": "ReID Core not initialized"}, status_code=500)
 
-        # Sanitize label (Alphanumeric only)
+        # Sanitize label
         clean_label = "".join([c for c in new_label if c.isalnum()]).capitalize()
-
         if not clean_label:
              return JSONResponse({"status": "error", "message": "Invalid label"}, status_code=400)
 
@@ -108,24 +170,62 @@ async def label_image(
         if not os.path.exists(src_path):
              return JSONResponse({"status": "error", "message": "Source file not found"}, status_code=404)
 
-        # Construct new filename
-        # If filename has underscore, assume suffix follows. Else use filename as suffix.
-        if '_' in filename:
-            # e.g., "unknown_123.jpg" -> "Label_123.jpg"
-            # or "OldLabel_123.jpg" -> "Label_123.jpg"
-            suffix = filename.split('_', 1)[1]
-            new_filename = f"{clean_label}_{suffix}"
-        else:
-            # e.g. "123.jpg" -> "Label_123.jpg"
-            new_filename = f"{clean_label}_{filename}"
+        # Determine Event ID and New Filename
+        base_name = os.path.splitext(filename)[0]
+        ext = os.path.splitext(filename)[1]
 
-        dest_path = os.path.join(settings.gallery_dir, new_filename)
+        event_id = None
 
-        # Move (rename is same as move if on same fs)
-        # shutil.move handles cross-fs moves if volumes are mounted differently (unlikely here but safe)
-        shutil.move(src_path, dest_path)
+        if source == "unknown":
+            # Filename is event_id.jpg
+            event_id = base_name
+            # Update DB for this specific event
+            db_repo.update_label(event_id, clean_label, source="manual")
 
-        # Reload gallery to update embeddings
+            # New filename: Label_EventID.jpg
+            new_filename = f"{clean_label}_{event_id}{ext}"
+            dest_path = os.path.join(settings.gallery_dir, new_filename)
+            shutil.move(src_path, dest_path)
+
+        elif source == "gallery":
+            # Filename is OldLabel_EventID.jpg
+            if '_' in base_name:
+                parts = base_name.split('_')
+                old_label = parts[0]
+                event_id = parts[-1]
+
+                # If renaming entire identity (e.g. Voisin -> Martine)
+                if old_label != clean_label:
+                    # Update DB for ALL events with old_label
+                    db_repo.rename_identity(old_label, clean_label, source="manual")
+
+                    # Rename ALL matching files on disk
+                    renamed_files = []
+                    for f in os.listdir(settings.gallery_dir):
+                        if f.startswith(old_label + "_"):
+                            # Construct new name
+                            # Preserve the ID part
+                            f_base = os.path.splitext(f)[0]
+                            f_ext = os.path.splitext(f)[1]
+                            f_suffix = f_base.split('_', 1)[1]
+
+                            new_f = f"{clean_label}_{f_suffix}{f_ext}"
+                            shutil.move(os.path.join(settings.gallery_dir, f), os.path.join(settings.gallery_dir, new_f))
+                            if f == filename:
+                                new_filename = new_f
+
+                    if not 'new_filename' in locals():
+                        new_filename = f"{clean_label}_{base_name}{ext}" # Fallback
+                else:
+                    # Same label, nothing to do?
+                    new_filename = filename
+            else:
+                # No underscore? Just rename file
+                new_filename = f"{clean_label}_{base_name}{ext}"
+                dest_path = os.path.join(settings.gallery_dir, new_filename)
+                shutil.move(src_path, dest_path)
+
+        # Reload gallery
         reid_core.reload_gallery()
 
         return {"status": "success", "new_filename": new_filename}
