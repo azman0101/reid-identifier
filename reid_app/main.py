@@ -65,6 +65,7 @@ app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="reid_app/templates")
 
 # Mount static files
+app.mount("/static", StaticFiles(directory="reid_app/static"), name="static")
 app.mount("/gallery_imgs", StaticFiles(directory=settings.gallery_dir), name="gallery")
 app.mount("/unknown_imgs", StaticFiles(directory=settings.unknown_dir), name="unknown")
 

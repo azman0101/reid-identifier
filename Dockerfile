@@ -45,6 +45,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 # This includes 'reid_app' package directory, 'pyproject.toml', etc.
 COPY . /app
 
+# Build static CSS with standalone Tailwind CLI (no Node.js required)
+RUN curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64 \
+    && chmod +x tailwindcss-linux-x64 \
+    && ./tailwindcss-linux-x64 -i reid_app/static/input.css -o reid_app/static/output.css --minify \
+    && rm tailwindcss-linux-x64
+
 # Set PYTHONPATH so python can find 'reid_app' package in /app
 ENV PYTHONPATH=/app
 
