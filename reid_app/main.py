@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 
 from .config import settings
 from .reid_engine import ReIDCore
@@ -245,10 +246,17 @@ async def delete_image(filename: str = Form(...), source: str = Form(...)):
         folder = settings.unknown_dir if source == "unknown" else settings.gallery_dir
         path = os.path.join(folder, filename)
 
-        if os.path.exists(path):
-            os.remove(path)
-            if source == "gallery" and reid_core:
-                reid_core.reload_gallery()
+        def _delete_sync():
+            if os.path.exists(path):
+                os.remove(path)
+                if source == "gallery" and reid_core:
+                    reid_core.reload_gallery()
+                return True
+            return False
+
+        deleted = await run_in_threadpool(_delete_sync)
+
+        if deleted:
             return {"status": "deleted"}
         else:
             return JSONResponse({"status": "error", "message": "File not found"}, status_code=404)
