@@ -41,9 +41,11 @@ class MQTTWorker:
         """Processes a single event in a separate thread."""
         try:
             snapshot_url = f"{self.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
+            logger.info(f"[{event_id}] Fetching cropped snapshot from: {snapshot_url}")
             response = requests.get(snapshot_url, timeout=10)
 
             if response.status_code == 200:
+                logger.info(f"[{event_id}] Successfully downloaded snapshot. Decoding image and running ReID...")
                 image_array = np.asarray(bytearray(response.content), dtype="uint8")
                 image_frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
 
@@ -53,6 +55,7 @@ class MQTTWorker:
 
                 embedding = self.reid_core.get_embedding(image_frame)
                 match = self.reid_core.find_match(embedding)
+                logger.info(f"[{event_id}] ReID inference complete. Target identified as: {match if match else 'UNKNOWN'}")
 
                 # Determine label
                 label = match if match else "unknown"
@@ -69,13 +72,23 @@ class MQTTWorker:
                     # Known silhouette, update Frigate
                     # POST to sub_label endpoint
                     sub_label_url = f"{self.frigate_url}/api/events/{event_id}/sub_label"
-                    payload = {"subLabel": match, "subLabelScore": 1.0}
-                    resp = requests.post(sub_label_url, json=payload)
+                    logger.info(f"[{event_id}] Informing Frigate API: Setting subLabel to '{match}' on {camera}")
+
+                    payload = {
+                        "subLabel": match,
+                        "subLabelScore": 1.0,
+                        "camera": camera
+                    }
+                    headers = {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    }
+                    resp = requests.post(sub_label_url, json=payload, headers=headers)
 
                     if resp.status_code == 200:
-                        logger.info(f"✅ Recognized: {match} (Event: {event_id})")
+                        logger.info(f"[{event_id}] ✅ Successfully updated Frigate with recognized identity: {match}")
                     else:
-                        logger.error(f"Failed to update sub_label for {event_id}: {resp.text}")
+                        logger.error(f"[{event_id}] Failed to update sub_label in Frigate HTTP {resp.status_code}: {resp.text}")
 
                     # We usually don't save the image locally if matched, unless we want to grow the gallery automatically.
                     # For now, let's say we don't save the file locally to save space,
@@ -117,15 +130,23 @@ class MQTTWorker:
         try:
             payload = json.loads(msg.payload.decode('utf-8'))
             after = payload.get("after", {})
+            event_id = after.get("id", "unknown")
+            camera = after.get("camera", "unknown")
+            label = after.get("label", "unknown")
+            has_snapshot = after.get("has_snapshot", False)
+            sub_label = after.get("sub_label", None)
+
+            # Print every single MQTT message about an event going through (useful for debugging)
+            if after:
+                logger.info(f"[MQTT msg] incoming update for event {event_id} | cam: {camera} | label: {label} | has_snapshot: {has_snapshot} | sub_label: {sub_label}")
 
             # Filter logic: only process when snapshot is available and no sub_label exists yet
             if (after and
-                after.get("label") == "person" and
-                after.get("has_snapshot") and
-                not after.get("sub_label")):
+                label == "person" and
+                has_snapshot and
+                not sub_label):
 
-                event_id = after.get("id")
-                camera = after.get("camera")
+                logger.info(f"[{event_id}] Match! Event meets all criteria for ReID. Spawning inference thread.")
                 # Run processing in a separate thread to avoid blocking MQTT loop
                 threading.Thread(target=self.process_event, args=(event_id, camera), daemon=True).start()
 
