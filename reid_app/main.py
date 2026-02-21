@@ -2,9 +2,10 @@ import os
 import shutil
 import logging
 import sys
+import requests
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
@@ -73,6 +74,39 @@ app.mount("/gallery_imgs", StaticFiles(directory=settings.gallery_dir), name="ga
 app.mount("/unknown_imgs", StaticFiles(directory=settings.unknown_dir), name="unknown")
 
 
+@app.get("/snapshot/{event_id}")
+async def fetch_snapshot(event_id: str):
+    """Fetches a snapshot from local disk or Frigate API."""
+    try:
+        filename = f"{event_id}.jpg"
+        local_path = os.path.join(settings.unknown_dir, filename)
+
+        # 1. Check local
+        if os.path.exists(local_path):
+            return FileResponse(local_path)
+
+        # 2. Fetch from Frigate
+        frigate_url = f"{settings.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
+        logger.info(f"Fetching snapshot for {event_id} from {frigate_url}")
+
+        def _download():
+            resp = requests.get(frigate_url, timeout=10)
+            if resp.status_code == 200:
+                with open(local_path, "wb") as f:
+                    f.write(resp.content)
+                return True
+            return False
+
+        success = await run_in_threadpool(_download)
+
+        if success:
+            return FileResponse(local_path)
+        else:
+            return JSONResponse({"status": "error", "message": "Snapshot not found"}, status_code=404)
+    except Exception as e:
+        logger.error(f"Error fetching snapshot {event_id}: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     try:
@@ -89,17 +123,27 @@ async def home(request: Request):
         unknowns_data = []
         for event in unknown_events:
             filename = event["snapshot_path"]
-            full_path = os.path.join(settings.unknown_dir, filename)
-            if filename and os.path.exists(full_path):
-                unknowns_data.append(
-                    {
-                        "filename": filename,
-                        "event_id": event["id"],
-                        "camera": event["camera"],
-                        "timestamp": event["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),
-                    }
-                )
+            if not filename:
+                filename = f"{event['id']}.jpg"
 
+            full_path = os.path.join(settings.unknown_dir, filename)
+            is_local = os.path.exists(full_path)
+
+            if is_local:
+                 img_src = f"/unknown_imgs/{filename}"
+            else:
+                 img_src = f"/snapshot/{event['id']}"
+
+            unknowns_data.append(
+                {
+                    "filename": filename,
+                    "event_id": event["id"],
+                    "camera": event["camera"],
+                    "timestamp": event["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),
+                    "is_local": is_local,
+                    "img_src": img_src
+                }
+            )
         # Also catch files on disk that might not be in DB (orphaned)
         disk_files = set(
             f

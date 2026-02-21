@@ -20,9 +20,12 @@
     <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 mb-12">
         {% for item in unknowns %}
         <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3">
-            <div class="relative group cursor-pointer" onclick="openZoomModal('/unknown_imgs/{{ item.filename }}')">
-                <img src="/unknown_imgs/{{ item.filename }}" class="w-full h-48 object-cover rounded mb-3"
-                    loading="lazy">
+            <div class="relative group cursor-pointer" onclick="openZoomModal('{{ item.img_src }}')">
+                <img src="{{ item.img_src }}" class="w-full h-48 object-cover rounded mb-3"
+                    loading="lazy" onerror="this.onerror=null;this.src='https://via.placeholder.com/300x400?text=Not+Found';">
+                {% if not item.is_local %}
+                <div class="absolute top-2 right-2 bg-blue-600/80 text-white text-xs px-2 py-1 rounded-full shadow backdrop-blur-sm z-10" title="Fetched from Frigate">☁️</div>
+                {% endif %}
                 <div
                     class="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center rounded mb-3">
                     <span class="text-white opacity-0 group-hover:opacity-100 text-3xl drop-shadow-lg">🔍</span>
