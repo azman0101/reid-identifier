@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import logging
 import threading
-from openvino.runtime import Core
+from openvino import Core
 from .config import settings
 
 # Configure logging
