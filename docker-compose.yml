@@ -1,7 +1,7 @@
 services:
-  mqtt-broker:
+  mosquitto:
     image: eclipse-mosquitto:2.1.2-alpine
-    container_name: mqtt-broker
+    container_name: mosquitto
     ports:
       - "1883:1883"
     restart: unless-stopped
@@ -13,7 +13,7 @@ services:
   #   restart: unless-stopped
   #   shm_size: "64mb"
   #   depends_on:
-  #     - mqtt-broker
+  #     - mosquitto
   #   ports:
   #     - "5000:5000"
   #     - "8971:8971"
@@ -37,7 +37,7 @@ services:
     container_name: reid-identifier
     restart: unless-stopped
     depends_on:
-      - mqtt-broker
+      - mosquitto
     ports:
       - "${REID_PORT:-8002}:8002"
     volumes:
@@ -49,7 +49,7 @@ services:
     # devices:
     #   - /dev/dri:/dev/dri # GPU access
     environment:
-      - MQTT_BROKER=${MQTT_BROKER:-mqtt-broker}
+      - MQTT_BROKER=${MQTT_BROKER:-mosquitto}
       - MQTT_PORT=${MQTT_PORT:-1883}
       - FRIGATE_URL=${FRIGATE_URL:-http://frigate:5000}
       - DEVICE_NAME=${DEVICE_NAME:-CPU}
