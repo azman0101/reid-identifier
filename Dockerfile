@@ -53,15 +53,15 @@ COPY . /app
 # https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.0/tailwindcss-linux-x64-musl
 # https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.0/tailwindcss-macos-arm64
 # https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.0/tailwindcss-macos-x64
-RUN ARCH=$(dpkg --print-architecture) && \
-    if [ "$ARCH" = "arm64" ]; then \
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
         TAILWIND_BIN="tailwindcss-linux-arm64"; \
-    elif [ "$ARCH" = "amd64" ]; then \
+    elif [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "amd64" ]; then \
         TAILWIND_BIN="tailwindcss-linux-x64"; \
     else \
         echo "Unsupported architecture: $ARCH" && exit 1; \
     fi && \
-    curl -sLO "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/$TAILWIND_BIN" && \
+    curl -f -sLO "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/$TAILWIND_BIN" && \
     chmod +x "$TAILWIND_BIN" && \
     ./"$TAILWIND_BIN" -i reid_app/static/input.css -o reid_app/static/output.css --minify && \
     rm "$TAILWIND_BIN"
