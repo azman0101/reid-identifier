@@ -39,7 +39,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /opt/venv /opt/venv
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-
+ARG TAILWIND_VERSION=v4.2.0
+ENV TAILWIND_VERSION=${TAILWIND_VERSION}
 # Copy application code
 # We copy everything in '.' (root of build context) to '/app'.
 # This includes 'reid_app' package directory, 'pyproject.toml', etc.
@@ -60,7 +61,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
     else \
         echo "Unsupported architecture: $ARCH" && exit 1; \
     fi && \
-    curl -sLO "https://github.com/tailwindlabs/tailwindcss/releases/latest/download/$TAILWIND_BIN" && \
+    curl -sLO "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/$TAILWIND_BIN" && \
     chmod +x "$TAILWIND_BIN" && \
     ./"$TAILWIND_BIN" -i reid_app/static/input.css -o reid_app/static/output.css --minify && \
     rm "$TAILWIND_BIN"
