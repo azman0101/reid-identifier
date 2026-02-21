@@ -11,22 +11,24 @@ RUN uv venv /opt/venv
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy project files
-# We need to copy pyproject.toml first to allow caching if possible,
-# but installing from current dir requires source.
-COPY . .
+# Install dependencies
+# 1. Copy only pyproject.toml to cache dependency installation
+COPY pyproject.toml .
 
-# Install dependencies and the project itself
-# This installs dependencies listed in pyproject.toml
-RUN uv pip install .
+# 2. Compile requirements.txt from pyproject.toml
+# This ensures deterministic builds and allows caching if pyproject.toml hasn't changed
+RUN uv pip compile pyproject.toml -o requirements.txt
+
+# 3. Install dependencies from requirements.txt
+RUN uv pip install -r requirements.txt
 
 # Final stage
 FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
-# Install runtime dependencies for OpenCV
-RUN apt-get update && apt-get install -y --no-install-recommends     libgl1-mesa-glx     libglib2.0-0     && rm -rf /var/lib/apt/lists/*
+# Install runtime dependencies for OpenCV and OpenVINO (if needed)
+RUN apt-get update && apt-get install -y --no-install-recommends     libgl1-mesa-glx     libglib2.0-0     curl     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
