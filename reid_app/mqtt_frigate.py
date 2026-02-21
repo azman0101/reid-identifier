@@ -87,6 +87,19 @@ class MQTTWorker:
 
                     if resp.status_code == 200:
                         logger.info(f"[{event_id}] ✅ Successfully updated Frigate with recognized identity: {match}")
+
+                        # Add a description noting that this script added the label
+                        desc_url = f"{self.frigate_url}/api/events/{event_id}/description"
+                        desc_payload = {
+                            "description": f"Auto-labeled as '{match}' by ReID-Identifier (OpenVINO)"
+                        }
+                        desc_resp = requests.post(desc_url, json=desc_payload, headers=headers)
+
+                        if desc_resp.status_code == 200:
+                            logger.info(f"[{event_id}] ✅ Successfully updated Frigate event description.")
+                        else:
+                            logger.error(f"[{event_id}] Failed to update description in Frigate HTTP {desc_resp.status_code}: {desc_resp.text}")
+
                     else:
                         logger.error(f"[{event_id}] Failed to update sub_label in Frigate HTTP {resp.status_code}: {resp.text}")
 
