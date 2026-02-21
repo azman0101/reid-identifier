@@ -6,6 +6,30 @@ services:
       - "1883:1883"
     restart: unless-stopped
 
+  # frigate:
+  #   image: ghcr.io/blakeblackshear/frigate:stable
+  #   container_name: frigate
+  #   privileged: true
+  #   restart: unless-stopped
+  #   shm_size: "64mb"
+  #   depends_on:
+  #     - mqtt-broker
+  #   ports:
+  #     - "5000:5000"
+  #     - "8971:8971"
+  #     - "8554:8554"
+  #     - "8555:8555/tcp"
+  #     - "8555:8555/udp"
+  #   volumes:
+  #     - ./frigate-config:/config
+  #     - ./frigate-media:/media/frigate
+  #     - type: tmpfs
+  #       target: /tmp/cache
+  #       tmpfs:
+  #         size: 1000000000
+  #   environment:
+  #     - FRIGATE_RTSP_PASSWORD=password
+
   reid-identifier:
     build:
       context: .
@@ -27,7 +51,7 @@ services:
     environment:
       - MQTT_BROKER=${MQTT_BROKER:-mqtt-broker}
       - MQTT_PORT=${MQTT_PORT:-1883}
-      - FRIGATE_URL=${FRIGATE_URL:-http://192.168.1.Y:5000}
+      - FRIGATE_URL=${FRIGATE_URL:-http://frigate:5000}
       - DEVICE_NAME=${DEVICE_NAME:-CPU}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]

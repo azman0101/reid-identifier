@@ -72,3 +72,5 @@ models/*.bin
 # System
 .DS_Store
 Thumbs.db
+
+person-3

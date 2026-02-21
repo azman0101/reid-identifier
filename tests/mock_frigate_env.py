@@ -7,10 +7,19 @@ import os
 import cv2
 import numpy as np
 
+import glob
+import random
+
 # Configuration
 FRIGATE_PORT = 5000
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
+
+KAGGLE_IMG_DIR = os.path.join("person-3", "train", "images")
+available_images = []
+if os.path.exists(KAGGLE_IMG_DIR):
+    available_images = glob.glob(os.path.join(KAGGLE_IMG_DIR, "*.jpg"))
+    print(f"Loaded {len(available_images)} images from {KAGGLE_IMG_DIR}")
 
 # Create a dummy image
 img = np.zeros((300, 300, 3), dtype=np.uint8)
@@ -25,8 +34,14 @@ class FrigateHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-type", "image/jpeg")
             self.end_headers()
             try:
-                with open("dummy_snapshot.jpg", "rb") as f:
-                    self.wfile.write(f.read())
+                if available_images:
+                    img_path = random.choice(available_images)
+                    with open(img_path, "rb") as f:
+                        self.wfile.write(f.read())
+                    print(f"Served image: {img_path}")
+                else:
+                    with open("dummy_snapshot.jpg", "rb") as f:
+                        self.wfile.write(f.read())
             except Exception as e:
                 print(f"Error serving image: {e}")
         else:
