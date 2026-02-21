@@ -1,6 +1,7 @@
 import os
 import shutil
 import logging
+import sys
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -38,14 +39,16 @@ async def lifespan(app: FastAPI):
     try:
         ensure_models_exist()
     except Exception as e:
-        logger.error(f"Failed to ensure models exist: {e}")
+        logger.critical(f"Failed to ensure models exist: {e}")
+        sys.exit(1)
 
     # Initialize Core
     global reid_core
     try:
         reid_core = ReIDCore()
     except Exception as e:
-        logger.error(f"Failed to initialize ReID Core: {e}")
+        logger.critical(f"Failed to initialize ReID Core: {e}")
+        sys.exit(1)
 
     # Start MQTT
     global mqtt_worker
