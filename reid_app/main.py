@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from fastapi.templating import Jinja2Templates
 
 from .config import settings
@@ -105,7 +106,7 @@ async def label_image(
         src_dir = settings.unknown_dir if source == "unknown" else settings.gallery_dir
         src_path = os.path.join(src_dir, filename)
 
-        if not os.path.exists(src_path):
+        if not await run_in_threadpool(os.path.exists, src_path):
              return JSONResponse({"status": "error", "message": "Source file not found"}, status_code=404)
 
         # Construct new filename
@@ -123,10 +124,10 @@ async def label_image(
 
         # Move (rename is same as move if on same fs)
         # shutil.move handles cross-fs moves if volumes are mounted differently (unlikely here but safe)
-        shutil.move(src_path, dest_path)
+        await run_in_threadpool(shutil.move, src_path, dest_path)
 
         # Reload gallery to update embeddings
-        reid_core.reload_gallery()
+        await run_in_threadpool(reid_core.reload_gallery)
 
         return {"status": "success", "new_filename": new_filename}
     except Exception as e:
@@ -140,10 +141,10 @@ async def delete_image(filename: str = Form(...), source: str = Form(...)):
         folder = settings.unknown_dir if source == "unknown" else settings.gallery_dir
         path = os.path.join(folder, filename)
 
-        if os.path.exists(path):
-            os.remove(path)
+        if await run_in_threadpool(os.path.exists, path):
+            await run_in_threadpool(os.remove, path)
             if source == "gallery" and reid_core:
-                reid_core.reload_gallery()
+                await run_in_threadpool(reid_core.reload_gallery)
             return {"status": "deleted"}
         else:
             return JSONResponse({"status": "error", "message": "File not found"}, status_code=404)
