@@ -2,6 +2,7 @@ import os
 import shutil
 import logging
 import sys
+from .utils import crop_image_from_box
 import cv2
 import numpy as np
 import requests
@@ -120,38 +121,8 @@ async def fetch_snapshot(event_id: str):
                 if image_frame is None:
                     return False
 
-                # Crop Logic
-                h, w, _ = image_frame.shape
-                x1, y1, x2, y2 = 0, 0, w, h
-                cropped = False
-
-                if data_box and len(data_box) == 4:
-                    nx, ny, nw, nh = data_box
-                    x1 = int(nx * w)
-                    y1 = int(ny * h)
-                    x2 = int((nx + nw) * w)
-                    y2 = int((ny + nh) * h)
-                    cropped = True
-                elif box and len(box) == 4:
-                    x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
-                    cropped = True
-
-                if cropped:
-                    # Ensure bounds
-                    x1, y1 = max(0, x1), max(0, y1)
-                    x2, y2 = min(w, x2), min(h, y2)
-                    # 10% Margin
-                    margin_w = int((x2 - x1) * 0.10)
-                    margin_h = int((y2 - y1) * 0.10)
-                    cx1 = max(0, x1 - margin_w)
-                    cy1 = max(0, y1 - margin_h)
-                    cx2 = min(w, x2 + margin_w)
-                    cy2 = min(h, y2 + margin_h)
-
-                    if cx2 > cx1 and cy2 > cy1 and (cx2 - cx1 < w or cy2 - cy1 < h):
-                         image_frame = image_frame[cy1:cy2, cx1:cx2]
-                         logger.info(f"[{event_id}] Cropped snapshot to {cx1}:{cx2}, {cy1}:{cy2}")
-
+                # Crop Logic (using utility)
+                image_frame = crop_image_from_box(image_frame, box, data_box)
                 # Save
                 cv2.imwrite(local_path, image_frame)
                 return True

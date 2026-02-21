@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+from .utils import crop_image_from_box
 import cv2
 import numpy as np
 import paho.mqtt.client as mqtt
@@ -86,59 +87,7 @@ class MQTTWorker:
                     return
 
                 # Manually crop if the image is full frame (Frigate API ?crop=1 often fails for historical events)
-                try:
-                    h, w, _ = image_frame.shape
-
-                    x1, y1, x2, y2 = 0, 0, w, h
-                    cropped = False
-
-                    if data_box and len(data_box) == 4:
-                        # Frigate 0.14 events API data.box is [x, y, width, height] normalized (0 to 1)
-                        nx, ny, nw, nh = data_box
-                        x1 = int(nx * w)
-                        y1 = int(ny * h)
-                        x2 = int((nx + nw) * w)
-                        y2 = int((ny + nh) * h)
-                        cropped = True
-                    elif box and len(box) == 4:
-                        # Native Frigate MQTT 'box' is [xmin, ymin, xmax, ymax] absolute pixels
-                        x1, y1, x2, y2 = (
-                            int(box[0]),
-                            int(box[1]),
-                            int(box[2]),
-                            int(box[3]),
-                        )
-                        cropped = True
-
-                    if cropped:
-                        # Ensure reasonable bounds
-                        x1, y1 = max(0, x1), max(0, y1)
-                        x2, y2 = min(w, x2), min(h, y2)
-
-                        # Add a 10% margin to avoid chopping heads/feet
-                        margin_w = int((x2 - x1) * 0.10)
-                        margin_h = int((y2 - y1) * 0.10)
-
-                        cx1 = max(0, x1 - margin_w)
-                        cy1 = max(0, y1 - margin_h)
-                        cx2 = min(w, x2 + margin_w)
-                        cy2 = min(h, y2 + margin_h)
-
-                        # Only crop if it's actually smaller than the full frame
-                        if cx2 > cx1 and cy2 > cy1 and (cx2 - cx1 < w or cy2 - cy1 < h):
-                            logger.info(
-                                f"[{event_id}] Manually cropping image from {w}x{h} to bounding box [{cx1}:{cx2}, {cy1}:{cy2}]"
-                            )
-                            image_frame = image_frame[cy1:cy2, cx1:cx2]
-                        else:
-                            logger.info(
-                                f"[{event_id}] Skipping manual crop (box covers entire frame or invalid)."
-                            )
-
-                except Exception as e:
-                    logger.warning(
-                        f"[{event_id}] Failed to crop image manually: {e}. Proceeding with original image."
-                    )
+                image_frame = crop_image_from_box(image_frame, box, data_box)
 
                 embedding = self.reid_core.get_embedding(image_frame)
                 match, score = self.reid_core.find_match(embedding)
