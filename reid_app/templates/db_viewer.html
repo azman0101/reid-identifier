@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frigate ReID - Base de données</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {}
+            }
+        }
+    </script>
+</head>
+
+<body class="bg-gray-900 text-white p-8">
+    <div class="max-w-7xl mx-auto">
+        <div class="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
+            <h1 class="text-4xl font-bold text-blue-400">Base de Données SQLite</h1>
+            <a href="/"
+                class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded shadow transition font-semibold text-sm">⬅ Retour
+                Accueil</a>
+        </div>
+
+        <!-- Events Table -->
+        <h2 class="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2">Table `events`</h2>
+        <div class="bg-gray-800 rounded-lg shadow overflow-x-auto mb-12 border border-gray-700">
+            <table class="w-full text-left border-collapse whitespace-nowrap">
+                <thead>
+                    <tr class="bg-gray-750 text-gray-300">
+                        <th class="p-3 border-b border-gray-700 bg-gray-900/50">ID Event</th>
+                        <th class="p-3 border-b border-gray-700 bg-gray-900/50">Timestamp</th>
+                        <th class="p-3 border-b border-gray-700 bg-gray-900/50">Caméra</th>
+                        <th class="p-3 border-b border-gray-700 bg-gray-900/50">Label Actuel</th>
+                        <th class="p-3 border-b border-gray-700 bg-gray-900/50">Snapshot Path</th>
+                        <th class="p-3 border-b border-gray-700 bg-gray-900/50">Image Hash (dHash)</th>
+                    </tr>
+                </thead>
+                <tbody class="text-sm">
+                    {% for row in events %}
+                    <tr class="border-b border-gray-700 hover:bg-gray-700 transition">
+                        <td class="p-3 font-mono text-xs text-gray-400">{{ row.id }}</td>
+                        <td class="p-3">{{ row.timestamp }}</td>
+                        <td class="p-3">{{ row.camera }}</td>
+                        <td class="p-3 font-bold text-green-400">{{ row.current_label }}</td>
+                        <td class="p-3 text-xs text-gray-400 truncate max-w-xs" title="{{ row.snapshot_path }}">{{
+                            row.snapshot_path }}</td>
+                        <td class="p-3 font-mono text-xs text-yellow-500">{{ row.image_hash or '-' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="p-4 text-center text-gray-500">Aucun évènement enregistré.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- History Table -->
+        <h2 class="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2">Table `label_history`</h2>
+        <div class="bg-gray-800 rounded-lg shadow overflow-x-auto border border-gray-700">
+            <table class="w-full text-left border-collapse whitespace-nowrap">
+                <thead>
+                    <tr class="bg-gray-750 text-gray-300">
+                        <th class="p-3 border-b border-gray-700 bg-gray-900/50">ID</th>
+                        <th class="p-3 border-b border-gray-700 bg-gray-900/50">Event ID</th>
+                        <th class="p-3 border-b border-gray-700 bg-gray-900/50">Ancien Label</th>
+                        <th class="p-3 border-b border-gray-700 bg-gray-900/50">Nouveau Label</th>
+                        <th class="p-3 border-b border-gray-700 bg-gray-900/50">Source</th>
+                        <th class="p-3 border-b border-gray-700 bg-gray-900/50">Modifié le</th>
+                    </tr>
+                </thead>
+                <tbody class="text-sm">
+                    {% for h in history %}
+                    <tr class="border-b border-gray-700 hover:bg-gray-700 transition">
+                        <td class="p-3 text-gray-500">{{ h.id }}</td>
+                        <td class="p-3 font-mono text-xs text-gray-400">{{ h.event_id }}</td>
+                        <td class="p-3 text-red-400">{{ h.old_label }}</td>
+                        <td class="p-3 text-green-400 font-bold">{{ h.new_label }}</td>
+                        <td class="p-3">
+                            <span
+                                class="px-2 py-1 text-xs font-semibold rounded-full border {% if h.source == 'manual' %}bg-blue-900/50 border-blue-500/30 text-blue-300{% else %}bg-purple-900/50 border-purple-500/30 text-purple-300{% endif %}">
+                                {{ h.source }}
+                            </span>
+                        </td>
+                        <td class="p-3 text-gray-400 text-xs">{{ h.changed_at }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="p-4 text-center text-gray-500">Aucun historique.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+
+</html>
