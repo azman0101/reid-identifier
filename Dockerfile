@@ -22,7 +22,7 @@ RUN uv pip compile pyproject.toml -o requirements.txt
 RUN uv pip install -r requirements.txt
 
 # Final stage
-FROM python:3.11-slim-bookworm
+FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
