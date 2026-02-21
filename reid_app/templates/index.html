@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <title>Frigate ReID - Backoffice</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {}
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-900 text-white p-8">
+    <div class="max-w-7xl mx-auto">
+        <h1 class="text-4xl font-bold mb-8 text-blue-400">Classification des Silhouettes</h1>
+
+        <!-- Unknowns -->
+        <h2 class="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2">Nouvelles détections (À nommer)</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 mb-12">
+            {% for file in unknowns %}
+            <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3">
+                <div class="relative group">
+                    <img src="/unknown_imgs/{{ file }}" class="w-full h-48 object-cover rounded mb-3" loading="lazy">
+                </div>
+                <form onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2">
+                    <input type="hidden" name="filename" value="{{ file }}">
+                    <input type="hidden" name="source" value="unknown">
+                    <input type="text" name="new_label" placeholder="Nom (ex: Maël)" required
+                           class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 outline-none w-full">
+                    <div class="flex gap-2">
+                        <button type="submit" class="bg-blue-600 hover:bg-blue-500 w-full py-1 rounded text-sm font-bold transition">Valider</button>
+                        <button type="button" onclick="deleteImg('{{ file }}', 'unknown')" class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
+                    </div>
+                </form>
+            </div>
+            {% endfor %}
+            {% if not unknowns %}<p class="text-gray-400 col-span-full text-center py-4">Aucune nouvelle silhouette détectée.</p>{% endif %}
+        </div>
+
+        <!-- Gallery -->
+        <h2 class="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2">Galerie d'apprentissage (Déjà nommées)</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
+            {% for file in gallery %}
+            <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3 opacity-90 hover:opacity-100 transition">
+                <img src="/gallery_imgs/{{ file }}" class="w-full h-48 object-cover rounded mb-3" loading="lazy">
+                <p class="text-center font-bold text-green-400 mb-2 truncate" title="{{ file }}">{{ file.split('_')[0] }}</p>
+                <form onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2">
+                    <input type="hidden" name="filename" value="{{ file }}">
+                    <input type="hidden" name="source" value="gallery">
+                    <input type="text" name="new_label" placeholder="Corriger..." required
+                           class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-yellow-500 outline-none w-full">
+                    <div class="flex gap-2">
+                        <button type="submit" class="bg-yellow-600 hover:bg-yellow-500 w-full py-1 rounded text-sm font-bold transition">Modifier</button>
+                        <button type="button" onclick="deleteImg('{{ file }}', 'gallery')" class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
+                    </div>
+                </form>
+            </div>
+            {% endfor %}
+            {% if not gallery %}<p class="text-gray-400 col-span-full text-center py-4">La galerie est vide.</p>{% endif %}
+        </div>
+    </div>
+
+    <script>
+        async function submitForm(e, endpoint) {
+            e.preventDefault();
+            const btn = e.target.querySelector('button[type="submit"]');
+            const originalText = btn.innerText;
+            btn.disabled = true;
+            btn.innerText = "Wait...";
+
+            try {
+                const formData = new FormData(e.target);
+                const response = await fetch(endpoint, { method: 'POST', body: formData });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    window.location.reload();
+                } else {
+                    alert("Erreur: " + result.message);
+                    btn.disabled = false;
+                    btn.innerText = originalText;
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Erreur réseau");
+                btn.disabled = false;
+                btn.innerText = originalText;
+            }
+        }
+
+        async function deleteImg(filename, source) {
+            if(confirm("Supprimer cette image définitivement ?")) {
+                try {
+                    const formData = new FormData();
+                    formData.append('filename', filename);
+                    formData.append('source', source);
+                    const response = await fetch('/delete', { method: 'POST', body: formData });
+                    const result = await response.json();
+
+                    if (result.status === 'deleted') {
+                         window.location.reload();
+                    } else {
+                        alert("Erreur suppression: " + result.message);
+                    }
+                } catch (err) {
+                    console.error(err);
+                    alert("Erreur réseau lors de la suppression");
+                }
+            }
+        }
+    </script>
+</body>
+</html>

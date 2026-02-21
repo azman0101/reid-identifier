@@ -1,0 +1,27 @@
+version: "3.8"
+
+services:
+  reid-identifier:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: reid-identifier
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/models
+      # Mount code for dev if needed, but not recommended for production
+      # - .:/app/reid_app
+    devices:
+      - /dev/dri:/dev/dri # GPU access
+    environment:
+      - MQTT_BROKER=${MQTT_BROKER:-192.168.1.X}
+      - MQTT_PORT=${MQTT_PORT:-1883}
+      - FRIGATE_URL=${FRIGATE_URL:-http://192.168.1.Y:5000}
+      - DEVICE_NAME=${DEVICE_NAME:-GPU}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
