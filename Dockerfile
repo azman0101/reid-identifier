@@ -33,8 +33,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ocl-icd-libopencl1 \
     intel-opencl-icd \
-    intel-level-zero-gpu \
-    level-zero \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder
