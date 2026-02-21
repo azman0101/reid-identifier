@@ -60,3 +60,13 @@ class ReIDRepository(ABC):
     def get_label_history(self, event_id: str) -> List[Dict[str, Any]]:
         """Retrieve the history of label changes for an event."""
         pass
+
+    @abstractmethod
+    def get_all_events(self) -> List[Dict[str, Any]]:
+        """Retrieve all events."""
+        pass
+
+    @abstractmethod
+    def get_all_label_history(self) -> List[Dict[str, Any]]:
+        """Retrieve all label history globally."""
+        pass

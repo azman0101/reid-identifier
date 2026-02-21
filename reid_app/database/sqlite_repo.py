@@ -161,3 +161,17 @@ class SQLiteRepository(ReIDRepository):
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM label_history WHERE event_id = ? ORDER BY changed_at DESC", (event_id,))
             return [dict(row) for row in cursor.fetchall()]
+
+    def get_all_events(self) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM events ORDER BY timestamp DESC")
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_all_label_history(self) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM label_history ORDER BY changed_at DESC")
+            return [dict(row) for row in cursor.fetchall()]

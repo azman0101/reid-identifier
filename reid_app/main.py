@@ -149,6 +149,22 @@ async def home(request: Request):
         "gallery": gallery_data
     })
 
+@app.get("/db_viewer", response_class=HTMLResponse)
+async def db_viewer(request: Request):
+    try:
+        events = db_repo.get_all_events()
+        history = db_repo.get_all_label_history()
+    except Exception as e:
+        logger.error(f"Error retrieving database records: {e}")
+        events = []
+        history = []
+
+    return templates.TemplateResponse("db_viewer.html", {
+        "request": request,
+        "events": events,
+        "history": history
+    })
+
 @app.post("/label")
 async def label_image(
     filename: str = Form(...),

@@ -16,81 +16,85 @@
 </head>
 
 <body class="bg-gray-900 text-white p-8">
-    <div class="max-w-7xl mx-auto">
-        <h1 class="text-4xl font-bold mb-8 text-blue-400">Classification des Silhouettes</h1>
+    <div class="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
+        <h1 class="text-4xl font-bold text-blue-400">Classification des Silhouettes</h1>
+        <a href="/db_viewer"
+            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 shadow transition font-semibold text-sm">🗄️
+            Voir Base de Données</a>
+    </div>
 
-        <!-- Unknowns -->
-        <h2 class="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2">Nouvelles détections (À nommer)</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 mb-12">
-            {% for item in unknowns %}
-            <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3">
-                <div class="relative group cursor-pointer" onclick="openZoomModal('/unknown_imgs/{{ item.filename }}')">
-                    <img src="/unknown_imgs/{{ item.filename }}" class="w-full h-48 object-cover rounded mb-3"
-                        loading="lazy">
-                    <div
-                        class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition flex items-center justify-center rounded mb-3">
-                        <span class="text-white opacity-0 group-hover:opacity-100 text-3xl drop-shadow-lg">🔍</span>
-                    </div>
+    <!-- Unknowns -->
+    <h2 class="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2">Nouvelles détections (À nommer)</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 mb-12">
+        {% for item in unknowns %}
+        <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3">
+            <div class="relative group cursor-pointer" onclick="openZoomModal('/unknown_imgs/{{ item.filename }}')">
+                <img src="/unknown_imgs/{{ item.filename }}" class="w-full h-48 object-cover rounded mb-3"
+                    loading="lazy">
+                <div
+                    class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition flex items-center justify-center rounded mb-3">
+                    <span class="text-white opacity-0 group-hover:opacity-100 text-3xl drop-shadow-lg">🔍</span>
                 </div>
-                <div class="text-xs text-gray-400 mb-2">
-                    <p>📸 {{ item.camera }}</p>
-                    <p>🕒 {{ item.timestamp }}</p>
-                </div>
-                <form onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2">
-                    <input type="hidden" name="filename" value="{{ item.filename }}">
-                    <input type="hidden" name="source" value="unknown">
-                    <input type="text" name="new_label" placeholder="Nom (ex: Maël)" required
-                        class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 outline-none w-full">
-                    <div class="flex gap-2">
-                        <button type="submit"
-                            class="bg-blue-600 hover:bg-blue-500 w-full py-1 rounded text-sm font-bold transition">Valider</button>
-                        <button type="button" onclick="deleteImg('{{ item.filename }}', 'unknown')"
-                            class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
-                    </div>
-                </form>
             </div>
-            {% endfor %}
-            {% if not unknowns %}<p class="text-gray-400 col-span-full text-center py-4">Aucune nouvelle silhouette
-                détectée.</p>{% endif %}
+            <div class="text-xs text-gray-400 mb-2">
+                <p>📸 {{ item.camera }}</p>
+                <p>🕒 {{ item.timestamp }}</p>
+            </div>
+            <form onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2">
+                <input type="hidden" name="filename" value="{{ item.filename }}">
+                <input type="hidden" name="source" value="unknown">
+                <input type="text" name="new_label" placeholder="Nom (ex: Maël)" required
+                    class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 outline-none w-full">
+                <div class="flex gap-2">
+                    <button type="submit"
+                        class="bg-blue-600 hover:bg-blue-500 w-full py-1 rounded text-sm font-bold transition">Valider</button>
+                    <button type="button" onclick="deleteImg('{{ item.filename }}', 'unknown')"
+                        class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
+                </div>
+            </form>
         </div>
+        {% endfor %}
+        {% if not unknowns %}<p class="text-gray-400 col-span-full text-center py-4">Aucune nouvelle silhouette
+            détectée.</p>{% endif %}
+    </div>
 
-        <!-- Gallery -->
-        <h2 class="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2">Galerie d'apprentissage (Déjà nommées)
-        </h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
-            {% for item in gallery %}
-            <div
-                class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3 opacity-90 hover:opacity-100 transition">
-                <div class="relative group cursor-pointer" onclick="openZoomModal('/gallery_imgs/{{ item.filename }}')">
-                    <img src="/gallery_imgs/{{ item.filename }}" class="w-full h-48 object-cover rounded mb-3"
-                        loading="lazy">
-                    <div
-                        class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition flex items-center justify-center rounded mb-3">
-                        <span class="text-white opacity-0 group-hover:opacity-100 text-3xl drop-shadow-lg">🔍</span>
-                    </div>
+    <!-- Gallery -->
+    <h2 class="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2">Galerie d'apprentissage (Déjà nommées)
+    </h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
+        {% for item in gallery %}
+        <div
+            class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3 opacity-90 hover:opacity-100 transition">
+            <div class="relative group cursor-pointer" onclick="openZoomModal('/gallery_imgs/{{ item.filename }}')">
+                <img src="/gallery_imgs/{{ item.filename }}" class="w-full h-48 object-cover rounded mb-3"
+                    loading="lazy">
+                <div
+                    class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition flex items-center justify-center rounded mb-3">
+                    <span class="text-white opacity-0 group-hover:opacity-100 text-3xl drop-shadow-lg">🔍</span>
                 </div>
-                <p class="text-center font-bold text-green-400 mb-1 truncate" title="{{ item.label }}">{{ item.label }}
-                </p>
-                <div class="text-xs text-gray-400 mb-2 text-center">
-                    <p>{{ item.timestamp }}</p>
-                </div>
-                <form onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2">
-                    <input type="hidden" name="filename" value="{{ item.filename }}">
-                    <input type="hidden" name="source" value="gallery">
-                    <input type="text" name="new_label" placeholder="Corriger..." required
-                        class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-yellow-500 outline-none w-full">
-                    <div class="flex gap-2">
-                        <button type="submit"
-                            class="bg-yellow-600 hover:bg-yellow-500 w-full py-1 rounded text-sm font-bold transition">Modifier</button>
-                        <button type="button" onclick="deleteImg('{{ item.filename }}', 'gallery')"
-                            class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
-                    </div>
-                </form>
             </div>
-            {% endfor %}
-            {% if not gallery %}<p class="text-gray-400 col-span-full text-center py-4">La galerie est vide.</p>{% endif
-            %}
+            <p class="text-center font-bold text-green-400 mb-1 truncate" title="{{ item.label }}">{{ item.label }}
+            </p>
+            <div class="text-xs text-gray-400 mb-2 text-center">
+                <p>{{ item.timestamp }}</p>
+            </div>
+            <form onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2">
+                <input type="hidden" name="filename" value="{{ item.filename }}">
+                <input type="hidden" name="source" value="gallery">
+                <input type="text" name="new_label" placeholder="Corriger..." required
+                    class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-yellow-500 outline-none w-full">
+                <div class="flex gap-2">
+                    <button type="submit"
+                        class="bg-yellow-600 hover:bg-yellow-500 w-full py-1 rounded text-sm font-bold transition">Modifier</button>
+                    <button type="button" onclick="deleteImg('{{ item.filename }}', 'gallery')"
+                        class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
+                </div>
+            </form>
         </div>
+        {% endfor %}
+        {% if not gallery %}<p class="text-gray-400 col-span-full text-center py-4">La galerie est vide.</p>{% endif
+        %}
+    </div>
     </div>
 
     <!-- Image Zoom Modal -->
