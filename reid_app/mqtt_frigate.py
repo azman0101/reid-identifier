@@ -14,6 +14,26 @@ from .database.interface import ReIDRepository
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def compute_dhash(image, hash_size=8):
+    """
+    Computes a robust fuzzy difference hash (dHash) using purely OpenCV.
+    Resizes to (hash_size + 1, hash_size), converts to grayscale, compares adjacent pixels.
+    Produces a perfect identical hex string for visually identical/very similar inputs.
+    """
+    if image is None:
+        return None
+    try:
+        resized = cv2.resize(image, (hash_size + 1, hash_size))
+        gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+        diff = gray[:, 1:] > gray[:, :-1]
+        return '{:0{width}x}'.format(
+            int(''.join(['1' if x else '0' for x in diff.flatten()]), 2),
+            width=(hash_size * hash_size) // 4
+        )
+    except Exception as e:
+        logger.warning(f"Failed to compute dhash: {e}")
+        return None
+
 class MQTTWorker:
     def __init__(self, reid_core, db_repo: ReIDRepository):
         self.reid_core = reid_core
@@ -177,13 +197,18 @@ class MQTTWorker:
                     # It was already sub_labeled manually, or we had low confidence. Don't save it as unknown.
                     snapshot_path_db = ""
 
+                # Compute fuzzy hash of the exact image going into the algorithm
+                # (helps with extremely robust db deduplication later)
+                image_hash = compute_dhash(image_frame)
+
                 # Add to Database
                 self.db_repo.add_event(
                     event_id=event_id,
                     camera=camera,
                     timestamp=datetime.now(),
                     label=label,
-                    snapshot_path=snapshot_path_db
+                    snapshot_path=snapshot_path_db,
+                    image_hash=image_hash
                 )
 
                 if match:

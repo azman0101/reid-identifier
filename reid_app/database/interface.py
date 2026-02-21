@@ -14,7 +14,7 @@ class ReIDRepository(ABC):
         pass
 
     @abstractmethod
-    def add_event(self, event_id: str, camera: str, timestamp: datetime, label: str, snapshot_path: str):
+    def add_event(self, event_id: str, camera: str, timestamp: datetime, label: str, snapshot_path: str, image_hash: str = None):
         """
         Record a new detection event.
         :param event_id: Frigate event ID (PK)

@@ -35,6 +35,13 @@ class SQLiteRepository(ReIDRepository):
                     )
                 ''')
 
+                # Handle older schemas dynamically by adding the image_hash column
+                cursor.execute("PRAGMA table_info(events)")
+                columns = [info[1] for info in cursor.fetchall()]
+                if "image_hash" not in columns:
+                    cursor.execute("ALTER TABLE events ADD COLUMN image_hash TEXT")
+                    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_events_image_hash ON events(image_hash)")
+
                 # Label History table
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS label_history (
@@ -56,18 +63,18 @@ class SQLiteRepository(ReIDRepository):
         except Exception as e:
             logger.error(f"Database initialization failed: {e}")
 
-    def add_event(self, event_id: str, camera: str, timestamp: datetime, label: str, snapshot_path: str):
+    def add_event(self, event_id: str, camera: str, timestamp: datetime, label: str, snapshot_path: str, image_hash: str = None):
         try:
             with self._connect() as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    INSERT INTO events (id, camera, timestamp, snapshot_path, current_label)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (event_id, camera, timestamp, snapshot_path, label))
+                    INSERT INTO events (id, camera, timestamp, snapshot_path, current_label, image_hash)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (event_id, camera, timestamp, snapshot_path, label, image_hash))
                 conn.commit()
                 logger.debug(f"Event {event_id} added successfully.")
-        except sqlite3.IntegrityError:
-            logger.debug(f"Event {event_id} already exists (skipping).")
+        except sqlite3.IntegrityError as e:
+            logger.debug(f"Event {event_id} (or visual duplicate) already exists (skipping). Details: {e}")
         except Exception as e:
             logger.error(f"Failed to add event {event_id}: {e}")
 
