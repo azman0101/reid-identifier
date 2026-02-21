@@ -53,7 +53,8 @@ It uses **OpenVINO™** for high-performance inference on Intel hardware (CPUs a
 
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose installed.
 - A running instance of [Frigate](https://frigate.video/) with MQTT enabled.
-- (Optional) Intel GPU for hardware acceleration.
+- (Optional) Intel GPU (iGPU or dGPU) for hardware acceleration.
+  - **Note**: GPU acceleration requires deploying on a Linux machine with an Intel graphics chip. If running on an Apple Silicon Mac (M1/M2/M3) or a Raspberry Pi, the system will gracefully fallback to CPU.
 
 ### Quick Start
 

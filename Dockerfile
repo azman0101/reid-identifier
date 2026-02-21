@@ -27,12 +27,12 @@ FROM python:3.12-slim-bookworm
 WORKDIR /app
 
 # Install runtime dependencies for OpenCV and OpenVINO
-# Install runtime dependencies for OpenCV and OpenVINO
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-glx \
     libglib2.0-0 \
     curl \
     ocl-icd-libopencl1 \
+    intel-opencl-icd \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder
