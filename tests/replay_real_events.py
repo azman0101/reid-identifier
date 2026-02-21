@@ -5,7 +5,7 @@ import time
 import argparse
 import os
 
-def replay_real_events(frigate_url, mqtt_broker, mqtt_port, cameras, limit):
+def replay_real_events(frigate_url, mqtt_broker, mqtt_port, cameras, limit, debug=False):
     # 1. Fetch real historical data from Frigate API
     cams_param = ",".join(cameras) if cameras else ""
     url = f"{frigate_url}/api/events?labels=person&limit={limit}&has_snapshot=1"
@@ -20,6 +20,11 @@ def replay_real_events(frigate_url, mqtt_broker, mqtt_port, cameras, limit):
     except requests.RequestException as e:
         print(f"Error connecting to Frigate API: {e}")
         return
+
+    if debug:
+        print("\n--- DEBUG: Raw API Response ---")
+        print(json.dumps(events, indent=2))
+        print("-------------------------------\n")
 
     if not events:
         print("No historical person events found for these cameras.")
@@ -65,6 +70,7 @@ if __name__ == "__main__":
     parser.add_argument("--mqtt-port", type=int, default=int(os.environ.get("MQTT_PORT", 1883)), help="MQTT Broker Port")
     parser.add_argument("--cameras", nargs="*", default=["camera", "camera1terrasse"], help="List of cameras to filter by (space separated)")
     parser.add_argument("--limit", type=int, default=5, help="Number of recent events to replay")
+    parser.add_argument("--debug", action="store_true", help="Print raw Frigate API response for debugging")
 
     args = parser.parse_args()
 
@@ -73,5 +79,6 @@ if __name__ == "__main__":
         mqtt_broker=args.mqtt_broker,
         mqtt_port=args.mqtt_port,
         cameras=args.cameras,
-        limit=args.limit
+        limit=args.limit,
+        debug=args.debug
     )
