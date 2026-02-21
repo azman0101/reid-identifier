@@ -59,8 +59,8 @@ It uses **OpenVINO™** for high-performance inference on Intel hardware (CPUs a
 
 1.  **Clone the repository**:
     ```bash
-    git clone https://github.com/yourusername/frigate-reid.git
-    cd frigate-reid
+    git clone https://github.com/azman0101/reid-identifier.git
+    cd reid-identifier
     ```
 
 2.  **Configure Environment**:
@@ -106,8 +106,26 @@ To run tests or develop locally:
 
 3.  **Run Mock Environment**:
     To simulate Frigate events without a real camera setup:
+
+    a. Start the local MQTT broker:
+    ```bash
+    docker-compose -f docker-compose.yml up -d
+    ```
+
+    b. Activate the virtual environment (if not already done):
+    ```bash
+    source .venv/bin/activate
+    ```
+
+    c. Start the mock Frigate HTTP server:
     ```bash
     python tests/mock_frigate_env.py
+    ```
+
+    d. Publish a test event to trigger ReID (in a new terminal):
+    ```bash
+    source .venv/bin/activate
+    python tests/publish_mock_event.py --event-id test_123
     ```
 
 ## License

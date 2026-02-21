@@ -1,23 +1,34 @@
 services:
+  mqtt-broker:
+    image: eclipse-mosquitto:2.1.2-alpine
+    container_name: mqtt-broker
+    ports:
+      - "1883:1883"
+    restart: unless-stopped
+
   reid-identifier:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: reid-identifier
     restart: unless-stopped
+    depends_on:
+      - mqtt-broker
     ports:
       - "8000:8000"
     volumes:
       - ./models:/models
+      - ./models/gallery:/models/gallery
+      - ./models/unknown:/models/unknown
       # Mount code for dev if needed
       # - .:/app
-    devices:
-      - /dev/dri:/dev/dri # GPU access
+    # devices:
+    #   - /dev/dri:/dev/dri # GPU access
     environment:
-      - MQTT_BROKER=${MQTT_BROKER:-192.168.1.X}
+      - MQTT_BROKER=${MQTT_BROKER:-mqtt-broker}
       - MQTT_PORT=${MQTT_PORT:-1883}
       - FRIGATE_URL=${FRIGATE_URL:-http://192.168.1.Y:5000}
-      - DEVICE_NAME=${DEVICE_NAME:-GPU}
+      - DEVICE_NAME=${DEVICE_NAME:-CPU}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 30s
