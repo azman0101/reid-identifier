@@ -9,8 +9,8 @@ services:
       - "8000:8000"
     volumes:
       - ./models:/models
-      # Mount code for dev if needed, but not recommended for production
-      # - .:/app/reid_app
+      # Mount code for dev if needed
+      # - .:/app
     devices:
       - /dev/dri:/dev/dri # GPU access
     environment:

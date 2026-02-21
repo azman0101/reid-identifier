@@ -16,7 +16,6 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY pyproject.toml .
 
 # 2. Compile requirements.txt from pyproject.toml
-# This ensures deterministic builds and allows caching if pyproject.toml hasn't changed
 RUN uv pip compile pyproject.toml -o requirements.txt
 
 # 3. Install dependencies from requirements.txt
@@ -35,15 +34,15 @@ COPY --from=builder /opt/venv /opt/venv
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy application code into a package structure
-# We want to run 'uvicorn reid_app.main:app'
-# So we need /app/reid_app/main.py
-COPY . /app/reid_app
+# Copy application code
+# We copy everything in '.' (root of build context) to '/app'.
+# This includes 'reid_app' package directory, 'pyproject.toml', etc.
+COPY . /app
 
 # Set PYTHONPATH so python can find 'reid_app' package in /app
 ENV PYTHONPATH=/app
 
-# Create necessary directories for models
+# Create necessary directories for models (if not mounted)
 RUN mkdir -p /models/gallery /models/unknown
 
 # Expose port
