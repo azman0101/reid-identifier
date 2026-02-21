@@ -33,7 +33,7 @@ def replay_real_events(frigate_url, mqtt_broker, mqtt_port, cameras, limit, debu
     print(f"Found {len(events)} events to replay. Connecting to MQTT...")
 
     # 2. Connect to your MQTT Broker
-    client = mqtt.Client()
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     try:
         client.connect(mqtt_broker, mqtt_port)
     except Exception as e:

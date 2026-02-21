@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="fr" class="dark">
+
 <head>
     <meta charset="UTF-8">
     <title>Frigate ReID - Backoffice</title>
@@ -13,6 +14,7 @@
         }
     </script>
 </head>
+
 <body class="bg-gray-900 text-white p-8">
     <div class="max-w-7xl mx-auto">
         <h1 class="text-4xl font-bold mb-8 text-blue-400">Classification des Silhouettes</h1>
@@ -22,8 +24,13 @@
         <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 mb-12">
             {% for item in unknowns %}
             <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3">
-                <div class="relative group">
-                    <img src="/unknown_imgs/{{ item.filename }}" class="w-full h-48 object-cover rounded mb-3" loading="lazy">
+                <div class="relative group cursor-pointer" onclick="openZoomModal('/unknown_imgs/{{ item.filename }}')">
+                    <img src="/unknown_imgs/{{ item.filename }}" class="w-full h-48 object-cover rounded mb-3"
+                        loading="lazy">
+                    <div
+                        class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition flex items-center justify-center rounded mb-3">
+                        <span class="text-white opacity-0 group-hover:opacity-100 text-3xl drop-shadow-lg">🔍</span>
+                    </div>
                 </div>
                 <div class="text-xs text-gray-400 mb-2">
                     <p>📸 {{ item.camera }}</p>
@@ -33,24 +40,37 @@
                     <input type="hidden" name="filename" value="{{ item.filename }}">
                     <input type="hidden" name="source" value="unknown">
                     <input type="text" name="new_label" placeholder="Nom (ex: Maël)" required
-                           class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 outline-none w-full">
+                        class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 outline-none w-full">
                     <div class="flex gap-2">
-                        <button type="submit" class="bg-blue-600 hover:bg-blue-500 w-full py-1 rounded text-sm font-bold transition">Valider</button>
-                        <button type="button" onclick="deleteImg('{{ item.filename }}', 'unknown')" class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
+                        <button type="submit"
+                            class="bg-blue-600 hover:bg-blue-500 w-full py-1 rounded text-sm font-bold transition">Valider</button>
+                        <button type="button" onclick="deleteImg('{{ item.filename }}', 'unknown')"
+                            class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
                     </div>
                 </form>
             </div>
             {% endfor %}
-            {% if not unknowns %}<p class="text-gray-400 col-span-full text-center py-4">Aucune nouvelle silhouette détectée.</p>{% endif %}
+            {% if not unknowns %}<p class="text-gray-400 col-span-full text-center py-4">Aucune nouvelle silhouette
+                détectée.</p>{% endif %}
         </div>
 
         <!-- Gallery -->
-        <h2 class="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2">Galerie d'apprentissage (Déjà nommées)</h2>
+        <h2 class="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2">Galerie d'apprentissage (Déjà nommées)
+        </h2>
         <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
             {% for item in gallery %}
-            <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3 opacity-90 hover:opacity-100 transition">
-                <img src="/gallery_imgs/{{ item.filename }}" class="w-full h-48 object-cover rounded mb-3" loading="lazy">
-                <p class="text-center font-bold text-green-400 mb-1 truncate" title="{{ item.label }}">{{ item.label }}</p>
+            <div
+                class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3 opacity-90 hover:opacity-100 transition">
+                <div class="relative group cursor-pointer" onclick="openZoomModal('/gallery_imgs/{{ item.filename }}')">
+                    <img src="/gallery_imgs/{{ item.filename }}" class="w-full h-48 object-cover rounded mb-3"
+                        loading="lazy">
+                    <div
+                        class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition flex items-center justify-center rounded mb-3">
+                        <span class="text-white opacity-0 group-hover:opacity-100 text-3xl drop-shadow-lg">🔍</span>
+                    </div>
+                </div>
+                <p class="text-center font-bold text-green-400 mb-1 truncate" title="{{ item.label }}">{{ item.label }}
+                </p>
                 <div class="text-xs text-gray-400 mb-2 text-center">
                     <p>{{ item.timestamp }}</p>
                 </div>
@@ -58,16 +78,29 @@
                     <input type="hidden" name="filename" value="{{ item.filename }}">
                     <input type="hidden" name="source" value="gallery">
                     <input type="text" name="new_label" placeholder="Corriger..." required
-                           class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-yellow-500 outline-none w-full">
+                        class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-yellow-500 outline-none w-full">
                     <div class="flex gap-2">
-                        <button type="submit" class="bg-yellow-600 hover:bg-yellow-500 w-full py-1 rounded text-sm font-bold transition">Modifier</button>
-                        <button type="button" onclick="deleteImg('{{ item.filename }}', 'gallery')" class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
+                        <button type="submit"
+                            class="bg-yellow-600 hover:bg-yellow-500 w-full py-1 rounded text-sm font-bold transition">Modifier</button>
+                        <button type="button" onclick="deleteImg('{{ item.filename }}', 'gallery')"
+                            class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
                     </div>
                 </form>
             </div>
             {% endfor %}
-            {% if not gallery %}<p class="text-gray-400 col-span-full text-center py-4">La galerie est vide.</p>{% endif %}
+            {% if not gallery %}<p class="text-gray-400 col-span-full text-center py-4">La galerie est vide.</p>{% endif
+            %}
         </div>
+    </div>
+
+    <!-- Image Zoom Modal -->
+    <div id="zoomModal"
+        class="hidden fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center p-4 cursor-zoom-out"
+        onclick="closeZoomModal()">
+        <img id="zoomImage" src=""
+            class="max-w-full max-h-full object-contain rounded-lg shadow-2xl scale-95 transition-transform duration-200">
+        <button
+            class="absolute top-4 right-4 text-white text-4xl hover:text-gray-300 font-bold focus:outline-none">&times;</button>
     </div>
 
     <script>
@@ -99,7 +132,7 @@
         }
 
         async function deleteImg(filename, source) {
-            if(confirm("Supprimer cette image définitivement ?")) {
+            if (confirm("Supprimer cette image définitivement ?")) {
                 try {
                     const formData = new FormData();
                     formData.append('filename', filename);
@@ -108,7 +141,7 @@
                     const result = await response.json();
 
                     if (result.status === 'deleted') {
-                         window.location.reload();
+                        window.location.reload();
                     } else {
                         alert("Erreur suppression: " + result.message);
                     }
@@ -118,6 +151,39 @@
                 }
             }
         }
+
+        function openZoomModal(imageSrc) {
+            const modal = document.getElementById('zoomModal');
+            const zoomImg = document.getElementById('zoomImage');
+            zoomImg.src = imageSrc;
+            modal.classList.remove('hidden');
+            // Slight delay to allow display:block before applying scale transition
+            setTimeout(() => {
+                zoomImg.classList.remove('scale-95');
+                zoomImg.classList.add('scale-100');
+            }, 10);
+            document.body.style.overflow = 'hidden'; // Prevent background scrolling
+        }
+
+        function closeZoomModal() {
+            const modal = document.getElementById('zoomModal');
+            const zoomImg = document.getElementById('zoomImage');
+            zoomImg.classList.remove('scale-100');
+            zoomImg.classList.add('scale-95');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                zoomImg.src = '';
+                document.body.style.overflow = 'auto';
+            }, 200);
+        }
+
+        // Handle Escape key to close modal
+        document.addEventListener('keydown', function (event) {
+            if (event.key === "Escape") {
+                closeZoomModal();
+            }
+        });
     </script>
 </body>
+
 </html>
