@@ -209,6 +209,10 @@ class MQTTWorker:
             has_snapshot = after.get("has_snapshot", False)
             sub_label = after.get("sub_label", None)
 
+            # Additional bounding box info for manual cropping
+            box = after.get("box", [])
+            data_box = after.get("data", {}).get("box", [])
+
             # Print every single MQTT message about an event going through (useful for debugging)
             if after:
                 logger.info(f"[MQTT msg] incoming update for event {event_id} | cam: {camera} | label: {label} | has_snapshot: {has_snapshot} | sub_label: {sub_label}")
