@@ -98,7 +98,8 @@ class ReIDCore:
     def find_match(self, embedding, threshold=0.65):
         """
         Finds the best match for the given embedding.
-        Returns the label if the similarity score is above the threshold, else None.
+        Returns a tuple: (label, score).
+        label is None if the similarity score is below the threshold.
         Thread-safe access to known_silhouettes.
         """
         best_match = None
@@ -107,7 +108,7 @@ class ReIDCore:
         # Normalize the input embedding once
         norm_embedding = np.linalg.norm(embedding)
         if norm_embedding == 0:
-            return None
+            return None, 0.0
 
         with self.lock:
             # Iterate over a snapshot/copy or under lock
@@ -127,5 +128,5 @@ class ReIDCore:
         logger.debug(f"Best match: {best_match} with score: {best_score}")
 
         if best_score >= threshold:
-            return best_match
-        return None
+            return best_match, best_score
+        return None, best_score

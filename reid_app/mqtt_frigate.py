@@ -37,7 +37,7 @@ class MQTTWorker:
         if rc != 0:
             logger.warning(f"Unexpected disconnection from MQTT Broker with code {rc}. Reconnecting...")
 
-    def process_event(self, event_id, camera):
+    def process_event(self, event_id, camera, existing_sub_label=None):
         """Processes a single event in a separate thread."""
         try:
             snapshot_url = f"{self.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
@@ -54,8 +54,8 @@ class MQTTWorker:
                     return
 
                 embedding = self.reid_core.get_embedding(image_frame)
-                match = self.reid_core.find_match(embedding)
-                logger.info(f"[{event_id}] ReID inference complete. Target identified as: {match if match else 'UNKNOWN'}")
+                match, score = self.reid_core.find_match(embedding)
+                logger.info(f"[{event_id}] ReID inference complete. Target identified as: {match if match else 'UNKNOWN'} (Score: {score:.3f})")
 
                 # Determine label
                 label = match if match else "unknown"
@@ -68,8 +68,21 @@ class MQTTWorker:
 
                 snapshot_filename = f"{event_id}.jpg"
 
+                # Check if we should update Frigate
+                # We update if: 1) We have a match AND 2) The event doesn't currently have a sub_label
+                # OR 3) The event DOES have a sub_label, but our score is extremely high (>0.85) and contradicts it
+                HIGH_CONFIDENCE_THRESHOLD = 0.85
+
+                should_update_frigate = False
                 if match:
-                    # Known silhouette, update Frigate
+                    if not existing_sub_label:
+                        should_update_frigate = True
+                    elif existing_sub_label != match and score >= HIGH_CONFIDENCE_THRESHOLD:
+                        logger.info(f"[{event_id}] OVERRIDE: Existing sub_label was '{existing_sub_label}' but we are highly confident ({score:.3f}) this is '{match}'.")
+                        should_update_frigate = True
+
+                if should_update_frigate:
+                    # Known silhouette with sufficient confidence, update Frigate
                     # POST to sub_label endpoint
                     sub_label_url = f"{self.frigate_url}/api/events/{event_id}/sub_label"
                     logger.info(f"[{event_id}] Informing Frigate API: Setting subLabel to '{match}' on {camera}")
@@ -110,12 +123,15 @@ class MQTTWorker:
                     # If we don't save the file, we can't show it in history if Frigate deletes it.
                     # Let's stick to current logic: save only if unknown.
                     snapshot_path_db = ""
-                else:
-                    # Unknown silhouette, save for backoffice
+                elif not match and not existing_sub_label:
+                    # Unknown silhouette and not already labeled, save for backoffice
                     unknown_path = os.path.join(settings.unknown_dir, snapshot_filename)
                     cv2.imwrite(unknown_path, image_frame)
                     snapshot_path_db = snapshot_filename
                     logger.info(f"❓ Unknown saved: {event_id}.jpg")
+                else:
+                    # It was already sub_labeled manually, or we had low confidence. Don't save it as unknown.
+                    snapshot_path_db = ""
 
                 # Add to Database
                 self.db_repo.add_event(
@@ -153,15 +169,19 @@ class MQTTWorker:
             if after:
                 logger.info(f"[MQTT msg] incoming update for event {event_id} | cam: {camera} | label: {label} | has_snapshot: {has_snapshot} | sub_label: {sub_label}")
 
-            # Filter logic: only process when snapshot is available and no sub_label exists yet
-            if (after and
-                label == "person" and
-                has_snapshot and
-                not sub_label):
+            # Filter logic: only process when snapshot is available
+            # Note: We now allow events with existing sub_label to pass through for high-confidence overrides
+            if after and label == "person" and has_snapshot:
+
+                # Prevent infinite loops: If the sub_label was already assigned by us (indicated by description)
+                # or if the timestamp just updated but the sub_label is identical, avoid unnecessary re-inference
+                # Unfortunately Frigate MQTT doesn't send 'description' in the event payload.
+                # As a workaround to avoid infinite loops, we can track recent event_ids we've processed in memory,
+                # but an easier way is to just let it re-evaluate and if the label matches our inference, it ignores it.
 
                 logger.info(f"[{event_id}] Match! Event meets all criteria for ReID. Spawning inference thread.")
                 # Run processing in a separate thread to avoid blocking MQTT loop
-                threading.Thread(target=self.process_event, args=(event_id, camera), daemon=True).start()
+                threading.Thread(target=self.process_event, args=(event_id, camera, sub_label), daemon=True).start()
 
         except json.JSONDecodeError:
             logger.error("Failed to decode MQTT message payload")
