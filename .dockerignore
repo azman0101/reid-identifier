@@ -36,8 +36,8 @@ coverage.xml
 models/
 data/
 
-# Tests
-tests/
+# Tests (commented out so utilities are included in the image)
+# tests/
 
 # IDEs
 .vscode/
