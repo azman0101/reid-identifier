@@ -164,6 +164,9 @@ async def label_image(
         if not clean_label:
              return JSONResponse({"status": "error", "message": "Invalid label"}, status_code=400)
 
+        # Sanitize filename to prevent path traversal
+        filename = os.path.basename(filename)
+
         src_dir = settings.unknown_dir if source == "unknown" else settings.gallery_dir
         src_path = os.path.join(src_dir, filename)
 
@@ -237,6 +240,8 @@ async def label_image(
 async def delete_image(filename: str = Form(...), source: str = Form(...)):
     """Deletes an image."""
     try:
+        # Sanitize filename to prevent path traversal
+        filename = os.path.basename(filename)
         folder = settings.unknown_dir if source == "unknown" else settings.gallery_dir
         path = os.path.join(folder, filename)
 
