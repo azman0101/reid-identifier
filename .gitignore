@@ -74,3 +74,6 @@ models/*.bin
 Thumbs.db
 
 person-3
+dummy_snapshot.jpg
+frigate-config/
+models/
