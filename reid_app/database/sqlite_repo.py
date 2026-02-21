@@ -8,6 +8,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
+
 class SQLiteRepository(ReIDRepository):
     def __init__(self, db_path: str = None):
         if db_path is None:
@@ -25,7 +26,7 @@ class SQLiteRepository(ReIDRepository):
                 cursor = conn.cursor()
 
                 # Events table
-                cursor.execute('''
+                cursor.execute("""
                     CREATE TABLE IF NOT EXISTS events (
                         id TEXT PRIMARY KEY,
                         camera TEXT NOT NULL,
@@ -33,17 +34,19 @@ class SQLiteRepository(ReIDRepository):
                         snapshot_path TEXT NOT NULL,
                         current_label TEXT NOT NULL
                     )
-                ''')
+                """)
 
                 # Handle older schemas dynamically by adding the image_hash column
                 cursor.execute("PRAGMA table_info(events)")
                 columns = [info[1] for info in cursor.fetchall()]
                 if "image_hash" not in columns:
                     cursor.execute("ALTER TABLE events ADD COLUMN image_hash TEXT")
-                    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_events_image_hash ON events(image_hash)")
+                    cursor.execute(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_image_hash ON events(image_hash)"
+                    )
 
                 # Label History table
-                cursor.execute('''
+                cursor.execute("""
                     CREATE TABLE IF NOT EXISTS label_history (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         event_id TEXT NOT NULL,
@@ -53,28 +56,43 @@ class SQLiteRepository(ReIDRepository):
                         source TEXT NOT NULL,
                         FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
                     )
-                ''')
+                """)
 
                 # Index for performance
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_label ON events(current_label)')
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_events_label ON events(current_label)"
+                )
 
                 conn.commit()
                 logger.info("Database initialized successfully.")
         except Exception as e:
             logger.error(f"Database initialization failed: {e}")
 
-    def add_event(self, event_id: str, camera: str, timestamp: datetime, label: str, snapshot_path: str, image_hash: str = None):
+    def add_event(
+        self,
+        event_id: str,
+        camera: str,
+        timestamp: datetime,
+        label: str,
+        snapshot_path: str,
+        image_hash: str = None,
+    ):
         try:
             with self._connect() as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
+                cursor.execute(
+                    """
                     INSERT INTO events (id, camera, timestamp, snapshot_path, current_label, image_hash)
                     VALUES (?, ?, ?, ?, ?, ?)
-                ''', (event_id, camera, timestamp, snapshot_path, label, image_hash))
+                """,
+                    (event_id, camera, timestamp, snapshot_path, label, image_hash),
+                )
                 conn.commit()
                 logger.debug(f"Event {event_id} added successfully.")
         except sqlite3.IntegrityError as e:
-            logger.debug(f"Event {event_id} (or visual duplicate) already exists (skipping). Details: {e}")
+            logger.debug(
+                f"Event {event_id} (or visual duplicate) already exists (skipping). Details: {e}"
+            )
         except Exception as e:
             logger.error(f"Failed to add event {event_id}: {e}")
 
@@ -105,16 +123,24 @@ class SQLiteRepository(ReIDRepository):
                 return
 
             # Update event
-            cursor.execute("UPDATE events SET current_label = ? WHERE id = ?", (new_label, event_id))
+            cursor.execute(
+                "UPDATE events SET current_label = ? WHERE id = ?",
+                (new_label, event_id),
+            )
 
             # Record history
-            cursor.execute('''
+            cursor.execute(
+                """
                 INSERT INTO label_history (event_id, old_label, new_label, source, changed_at)
                 VALUES (?, ?, ?, ?, ?)
-            ''', (event_id, old_label, new_label, source, datetime.now()))
+            """,
+                (event_id, old_label, new_label, source, datetime.now()),
+            )
 
             conn.commit()
-            logger.info(f"Updated event {event_id}: {old_label} -> {new_label} ({source})")
+            logger.info(
+                f"Updated event {event_id}: {old_label} -> {new_label} ({source})"
+            )
 
     def rename_identity(self, old_label: str, new_label: str, source: str = "manual"):
         """Bulk update label for all events associated with old_label"""
@@ -122,7 +148,9 @@ class SQLiteRepository(ReIDRepository):
             cursor = conn.cursor()
 
             # Find all events with old_label
-            cursor.execute("SELECT id FROM events WHERE current_label = ?", (old_label,))
+            cursor.execute(
+                "SELECT id FROM events WHERE current_label = ?", (old_label,)
+            )
             events = cursor.fetchall()
 
             if not events:
@@ -136,30 +164,47 @@ class SQLiteRepository(ReIDRepository):
             current_time = datetime.now()
 
             # Update all events
-            cursor.execute("UPDATE events SET current_label = ? WHERE current_label = ?", (new_label, old_label))
+            cursor.execute(
+                "UPDATE events SET current_label = ? WHERE current_label = ?",
+                (new_label, old_label),
+            )
 
             # Insert history for all affected events
-            history_entries = [(event_id[0], old_label, new_label, source, current_time) for event_id in events]
-            cursor.executemany('''
+            history_entries = [
+                (event_id[0], old_label, new_label, source, current_time)
+                for event_id in events
+            ]
+            cursor.executemany(
+                """
                 INSERT INTO label_history (event_id, old_label, new_label, source, changed_at)
                 VALUES (?, ?, ?, ?, ?)
-            ''', history_entries)
+            """,
+                history_entries,
+            )
 
             conn.commit()
-            logger.info(f"Renamed {len(events)} events from {old_label} to {new_label} ({source})")
+            logger.info(
+                f"Renamed {len(events)} events from {old_label} to {new_label} ({source})"
+            )
 
     def get_events_by_label(self, label: str) -> List[Dict[str, Any]]:
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM events WHERE current_label = ? ORDER BY timestamp DESC", (label,))
+            cursor.execute(
+                "SELECT * FROM events WHERE current_label = ? ORDER BY timestamp DESC",
+                (label,),
+            )
             return [dict(row) for row in cursor.fetchall()]
 
     def get_label_history(self, event_id: str) -> List[Dict[str, Any]]:
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM label_history WHERE event_id = ? ORDER BY changed_at DESC", (event_id,))
+            cursor.execute(
+                "SELECT * FROM label_history WHERE event_id = ? ORDER BY changed_at DESC",
+                (event_id,),
+            )
             return [dict(row) for row in cursor.fetchall()]
 
     def get_all_events(self) -> List[Dict[str, Any]]:

@@ -14,6 +14,7 @@ from .database.interface import ReIDRepository
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 def compute_dhash(image, hash_size=8):
     """
     Computes a robust fuzzy difference hash (dHash) using purely OpenCV.
@@ -26,20 +27,21 @@ def compute_dhash(image, hash_size=8):
         resized = cv2.resize(image, (hash_size + 1, hash_size))
         gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
         diff = gray[:, 1:] > gray[:, :-1]
-        return '{:0{width}x}'.format(
-            int(''.join(['1' if x else '0' for x in diff.flatten()]), 2),
-            width=(hash_size * hash_size) // 4
+        return "{:0{width}x}".format(
+            int("".join(["1" if x else "0" for x in diff.flatten()]), 2),
+            width=(hash_size * hash_size) // 4,
         )
     except Exception as e:
         logger.warning(f"Failed to compute dhash: {e}")
         return None
+
 
 class MQTTWorker:
     def __init__(self, reid_core, db_repo: ReIDRepository):
         self.reid_core = reid_core
         self.db_repo = db_repo
         self.client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
-        self.frigate_url = settings.frigate_url.rstrip('/')
+        self.frigate_url = settings.frigate_url.rstrip("/")
 
         # Callbacks
         self.client.on_connect = self.on_connect
@@ -48,24 +50,34 @@ class MQTTWorker:
 
     def on_connect(self, client, userdata, flags, rc, properties=None):
         if rc == 0:
-            logger.info(f"Connected to MQTT Broker at {settings.mqtt_broker}:{settings.mqtt_port}")
+            logger.info(
+                f"Connected to MQTT Broker at {settings.mqtt_broker}:{settings.mqtt_port}"
+            )
             client.subscribe("frigate/events")
         else:
             logger.error(f"Failed to connect to MQTT Broker, return code {rc}")
 
     def on_disconnect(self, client, userdata, flags, rc, properties=None):
         if rc != 0:
-            logger.warning(f"Unexpected disconnection from MQTT Broker with code {rc}. Reconnecting...")
+            logger.warning(
+                f"Unexpected disconnection from MQTT Broker with code {rc}. Reconnecting..."
+            )
 
-    def process_event(self, event_id, camera, existing_sub_label=None, box=None, data_box=None):
+    def process_event(
+        self, event_id, camera, existing_sub_label=None, box=None, data_box=None
+    ):
         """Processes a single event in a separate thread."""
         try:
-            snapshot_url = f"{self.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
+            snapshot_url = (
+                f"{self.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
+            )
             logger.info(f"[{event_id}] Fetching cropped snapshot from: {snapshot_url}")
             response = requests.get(snapshot_url, timeout=10)
 
             if response.status_code == 200:
-                logger.info(f"[{event_id}] Successfully downloaded snapshot. Decoding image and running ReID...")
+                logger.info(
+                    f"[{event_id}] Successfully downloaded snapshot. Decoding image and running ReID..."
+                )
                 image_array = np.asarray(bytearray(response.content), dtype="uint8")
                 image_frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
 
@@ -90,7 +102,12 @@ class MQTTWorker:
                         cropped = True
                     elif box and len(box) == 4:
                         # Native Frigate MQTT 'box' is [xmin, ymin, xmax, ymax] absolute pixels
-                        x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
+                        x1, y1, x2, y2 = (
+                            int(box[0]),
+                            int(box[1]),
+                            int(box[2]),
+                            int(box[3]),
+                        )
                         cropped = True
 
                     if cropped:
@@ -109,17 +126,25 @@ class MQTTWorker:
 
                         # Only crop if it's actually smaller than the full frame
                         if cx2 > cx1 and cy2 > cy1 and (cx2 - cx1 < w or cy2 - cy1 < h):
-                            logger.info(f"[{event_id}] Manually cropping image from {w}x{h} to bounding box [{cx1}:{cx2}, {cy1}:{cy2}]")
+                            logger.info(
+                                f"[{event_id}] Manually cropping image from {w}x{h} to bounding box [{cx1}:{cx2}, {cy1}:{cy2}]"
+                            )
                             image_frame = image_frame[cy1:cy2, cx1:cx2]
                         else:
-                            logger.info(f"[{event_id}] Skipping manual crop (box covers entire frame or invalid).")
+                            logger.info(
+                                f"[{event_id}] Skipping manual crop (box covers entire frame or invalid)."
+                            )
 
                 except Exception as e:
-                    logger.warning(f"[{event_id}] Failed to crop image manually: {e}. Proceeding with original image.")
+                    logger.warning(
+                        f"[{event_id}] Failed to crop image manually: {e}. Proceeding with original image."
+                    )
 
                 embedding = self.reid_core.get_embedding(image_frame)
                 match, score = self.reid_core.find_match(embedding)
-                logger.info(f"[{event_id}] ReID inference complete. Target identified as: {match if match else 'UNKNOWN'} (Score: {score:.3f})")
+                logger.info(
+                    f"[{event_id}] ReID inference complete. Target identified as: {match if match else 'UNKNOWN'} (Score: {score:.3f})"
+                )
 
                 # Determine label
                 label = match if match else "unknown"
@@ -141,44 +166,65 @@ class MQTTWorker:
                 if match:
                     if not existing_sub_label:
                         should_update_frigate = True
-                    elif existing_sub_label != match and score >= HIGH_CONFIDENCE_THRESHOLD:
-                        logger.info(f"[{event_id}] OVERRIDE: Existing sub_label was '{existing_sub_label}' but we are highly confident ({score:.3f}) this is '{match}'.")
+                    elif (
+                        existing_sub_label != match
+                        and score >= HIGH_CONFIDENCE_THRESHOLD
+                    ):
+                        logger.info(
+                            f"[{event_id}] OVERRIDE: Existing sub_label was '{existing_sub_label}' but we are highly confident ({score:.3f}) this is '{match}'."
+                        )
                         should_update_frigate = True
 
                 if should_update_frigate:
                     # Known silhouette with sufficient confidence, update Frigate
                     # POST to sub_label endpoint
-                    sub_label_url = f"{self.frigate_url}/api/events/{event_id}/sub_label"
-                    logger.info(f"[{event_id}] Informing Frigate API: Setting subLabel to '{match}' on {camera}")
+                    sub_label_url = (
+                        f"{self.frigate_url}/api/events/{event_id}/sub_label"
+                    )
+                    logger.info(
+                        f"[{event_id}] Informing Frigate API: Setting subLabel to '{match}' on {camera}"
+                    )
 
                     payload = {
                         "subLabel": match,
                         "subLabelScore": 1.0,
-                        "camera": camera
+                        "camera": camera,
                     }
                     headers = {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
                     }
                     resp = requests.post(sub_label_url, json=payload, headers=headers)
 
                     if resp.status_code == 200:
-                        logger.info(f"[{event_id}] ✅ Successfully updated Frigate with recognized identity: {match}")
+                        logger.info(
+                            f"[{event_id}] ✅ Successfully updated Frigate with recognized identity: {match}"
+                        )
 
                         # Add a description noting that this script added the label
-                        desc_url = f"{self.frigate_url}/api/events/{event_id}/description"
+                        desc_url = (
+                            f"{self.frigate_url}/api/events/{event_id}/description"
+                        )
                         desc_payload = {
                             "description": f"Auto-labeled as '{match}' by ReID-Identifier (OpenVINO)"
                         }
-                        desc_resp = requests.post(desc_url, json=desc_payload, headers=headers)
+                        desc_resp = requests.post(
+                            desc_url, json=desc_payload, headers=headers
+                        )
 
                         if desc_resp.status_code == 200:
-                            logger.info(f"[{event_id}] ✅ Successfully updated Frigate event description.")
+                            logger.info(
+                                f"[{event_id}] ✅ Successfully updated Frigate event description."
+                            )
                         else:
-                            logger.error(f"[{event_id}] Failed to update description in Frigate HTTP {desc_resp.status_code}: {desc_resp.text}")
+                            logger.error(
+                                f"[{event_id}] Failed to update description in Frigate HTTP {desc_resp.status_code}: {desc_resp.text}"
+                            )
 
                     else:
-                        logger.error(f"[{event_id}] Failed to update sub_label in Frigate HTTP {resp.status_code}: {resp.text}")
+                        logger.error(
+                            f"[{event_id}] Failed to update sub_label in Frigate HTTP {resp.status_code}: {resp.text}"
+                        )
 
                     # We usually don't save the image locally if matched, unless we want to grow the gallery automatically.
                     # For now, let's say we don't save the file locally to save space,
@@ -208,7 +254,7 @@ class MQTTWorker:
                     timestamp=datetime.now(),
                     label=label,
                     snapshot_path=snapshot_path_db,
-                    image_hash=image_hash
+                    image_hash=image_hash,
                 )
 
                 if match:
@@ -219,14 +265,16 @@ class MQTTWorker:
                     pass
 
             else:
-                logger.warning(f"Failed to fetch snapshot for {event_id}: {response.status_code}")
+                logger.warning(
+                    f"Failed to fetch snapshot for {event_id}: {response.status_code}"
+                )
 
         except Exception as e:
             logger.error(f"Error processing event {event_id}: {e}")
 
     def on_message(self, client, userdata, msg):
         try:
-            payload = json.loads(msg.payload.decode('utf-8'))
+            payload = json.loads(msg.payload.decode("utf-8"))
             after = payload.get("after", {})
             event_id = after.get("id", "unknown")
             camera = after.get("camera", "unknown")
@@ -240,21 +288,28 @@ class MQTTWorker:
 
             # Print every single MQTT message about an event going through (useful for debugging)
             if after:
-                logger.info(f"[MQTT msg] incoming update for event {event_id} | cam: {camera} | label: {label} | has_snapshot: {has_snapshot} | sub_label: {sub_label}")
+                logger.info(
+                    f"[MQTT msg] incoming update for event {event_id} | cam: {camera} | label: {label} | has_snapshot: {has_snapshot} | sub_label: {sub_label}"
+                )
 
             # Filter logic: only process when snapshot is available
             # Note: We now allow events with existing sub_label to pass through for high-confidence overrides
             if after and label == "person" and has_snapshot:
-
                 # Prevent infinite loops: If the sub_label was already assigned by us (indicated by description)
                 # or if the timestamp just updated but the sub_label is identical, avoid unnecessary re-inference
                 # Unfortunately Frigate MQTT doesn't send 'description' in the event payload.
                 # As a workaround to avoid infinite loops, we can track recent event_ids we've processed in memory,
                 # but an easier way is to just let it re-evaluate and if the label matches our inference, it ignores it.
 
-                logger.info(f"[{event_id}] Match! Event meets all criteria for ReID. Spawning inference thread.")
+                logger.info(
+                    f"[{event_id}] Match! Event meets all criteria for ReID. Spawning inference thread."
+                )
                 # Run processing in a separate thread to avoid blocking MQTT loop
-                threading.Thread(target=self.process_event, args=(event_id, camera, sub_label, box, data_box), daemon=True).start()
+                threading.Thread(
+                    target=self.process_event,
+                    args=(event_id, camera, sub_label, box, data_box),
+                    daemon=True,
+                ).start()
 
         except json.JSONDecodeError:
             logger.error("Failed to decode MQTT message payload")
@@ -268,6 +323,7 @@ class MQTTWorker:
             self.client.loop_start()
         except Exception as e:
             logger.error(f"Failed to start MQTT client: {e}")
+
 
 def start_mqtt(reid_core, db_repo):
     worker = MQTTWorker(reid_core, db_repo)

@@ -23,6 +23,7 @@ reid_core = None
 mqtt_worker = None
 db_repo = None
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -59,12 +60,14 @@ async def lifespan(app: FastAPI):
         mqtt_worker.client.disconnect()
     logger.info("Shutting down ReID App...")
 
+
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="reid_app/templates")
 
 # Mount static files
 app.mount("/gallery_imgs", StaticFiles(directory=settings.gallery_dir), name="gallery")
 app.mount("/unknown_imgs", StaticFiles(directory=settings.unknown_dir), name="unknown")
+
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -81,73 +84,88 @@ async def home(request: Request):
         # Build list of unknown events
         unknowns_data = []
         for event in unknown_events:
-            filename = event['snapshot_path']
+            filename = event["snapshot_path"]
             full_path = os.path.join(settings.unknown_dir, filename)
             if filename and os.path.exists(full_path):
-                unknowns_data.append({
-                    "filename": filename,
-                    "event_id": event['id'],
-                    "camera": event['camera'],
-                    "timestamp": event['timestamp'].strftime("%Y-%m-%d %H:%M:%S")
-                })
+                unknowns_data.append(
+                    {
+                        "filename": filename,
+                        "event_id": event["id"],
+                        "camera": event["camera"],
+                        "timestamp": event["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                )
 
         # Also catch files on disk that might not be in DB (orphaned)
-        disk_files = set(f for f in os.listdir(settings.unknown_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png')))
-        db_files = set(u['filename'] for u in unknowns_data)
+        disk_files = set(
+            f
+            for f in os.listdir(settings.unknown_dir)
+            if f.lower().endswith((".jpg", ".jpeg", ".png"))
+        )
+        db_files = set(u["filename"] for u in unknowns_data)
         for f in disk_files:
             if f not in db_files:
-                unknowns_data.append({
-                    "filename": f,
-                    "event_id": f.split('.')[0],
-                    "camera": "Unknown",
-                    "timestamp": "Unknown"
-                })
+                unknowns_data.append(
+                    {
+                        "filename": f,
+                        "event_id": f.split(".")[0],
+                        "camera": "Unknown",
+                        "timestamp": "Unknown",
+                    }
+                )
 
         # For Gallery
-        gallery_files = sorted([f for f in os.listdir(settings.gallery_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
+        gallery_files = sorted(
+            [
+                f
+                for f in os.listdir(settings.gallery_dir)
+                if f.lower().endswith((".jpg", ".jpeg", ".png"))
+            ]
+        )
         gallery_data = []
         for f in gallery_files:
             # Format: Label_ID.jpg
             # Try to extract ID
-            parts = f.rsplit('.', 1)[0].split('_')
+            parts = f.rsplit(".", 1)[0].split("_")
 
             # If named correctly, last part is ID
             if len(parts) >= 2:
                 event_id = parts[-1]
                 event = db_repo.get_event(event_id)
                 if event:
-                    gallery_data.append({
-                        "filename": f,
-                        "label": event['current_label'],
-                        "camera": event['camera'],
-                        "timestamp": event['timestamp'].strftime("%Y-%m-%d %H:%M")
-                    })
+                    gallery_data.append(
+                        {
+                            "filename": f,
+                            "label": event["current_label"],
+                            "camera": event["camera"],
+                            "timestamp": event["timestamp"].strftime("%Y-%m-%d %H:%M"),
+                        }
+                    )
                 else:
                     # File exists but no event record
-                    gallery_data.append({
-                        "filename": f,
-                        "label": parts[0],
-                        "camera": "-",
-                        "timestamp": "-"
-                    })
+                    gallery_data.append(
+                        {
+                            "filename": f,
+                            "label": parts[0],
+                            "camera": "-",
+                            "timestamp": "-",
+                        }
+                    )
             else:
-                 gallery_data.append({
-                        "filename": f,
-                        "label": f,
-                        "camera": "-",
-                        "timestamp": "-"
-                    })
+                gallery_data.append(
+                    {"filename": f, "label": f, "camera": "-", "timestamp": "-"}
+                )
 
     except Exception as e:
         logger.error(f"Error listing files: {e}")
         unknowns_data = []
         gallery_data = []
 
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "unknowns": unknowns_data,
-        "gallery": gallery_data
-    })
+    return templates.TemplateResponse(
+        "index.html",
+        {"request": request, "unknowns": unknowns_data, "gallery": gallery_data},
+    )
+
 
 @app.get("/db_viewer", response_class=HTMLResponse)
 async def db_viewer(request: Request):
@@ -159,27 +177,35 @@ async def db_viewer(request: Request):
         events = []
         history = []
 
-    return templates.TemplateResponse("db_viewer.html", {
-        "request": request,
-        "events": events,
-        "history": history
-    })
+    return templates.TemplateResponse(
+        "db_viewer.html",
+        {
+            "request": request,
+            "events": events,
+            "history": history,
+            "external_url": settings.external_url.rstrip("/"),
+        },
+    )
+
 
 @app.post("/label")
 async def label_image(
-    filename: str = Form(...),
-    new_label: str = Form(...),
-    source: str = Form(...)
+    filename: str = Form(...), new_label: str = Form(...), source: str = Form(...)
 ):
     """Moves an image from 'unknown' to 'gallery' or renames in 'gallery'."""
     try:
         if not reid_core:
-            return JSONResponse({"status": "error", "message": "ReID Core not initialized"}, status_code=500)
+            return JSONResponse(
+                {"status": "error", "message": "ReID Core not initialized"},
+                status_code=500,
+            )
 
         # Sanitize label
         clean_label = "".join([c for c in new_label if c.isalnum()]).capitalize()
         if not clean_label:
-             return JSONResponse({"status": "error", "message": "Invalid label"}, status_code=400)
+            return JSONResponse(
+                {"status": "error", "message": "Invalid label"}, status_code=400
+            )
 
         # Sanitize filename to prevent path traversal
         filename = os.path.basename(filename)
@@ -188,7 +214,9 @@ async def label_image(
         src_path = os.path.join(src_dir, filename)
 
         if not os.path.exists(src_path):
-             return JSONResponse({"status": "error", "message": "Source file not found"}, status_code=404)
+            return JSONResponse(
+                {"status": "error", "message": "Source file not found"}, status_code=404
+            )
 
         # Determine Event ID and New Filename
         base_name = os.path.splitext(filename)[0]
@@ -209,8 +237,8 @@ async def label_image(
 
         elif source == "gallery":
             # Filename is OldLabel_EventID.jpg
-            if '_' in base_name:
-                parts = base_name.split('_')
+            if "_" in base_name:
+                parts = base_name.split("_")
                 old_label = parts[0]
                 event_id = parts[-1]
 
@@ -227,15 +255,18 @@ async def label_image(
                             # Preserve the ID part
                             f_base = os.path.splitext(f)[0]
                             f_ext = os.path.splitext(f)[1]
-                            f_suffix = f_base.split('_', 1)[1]
+                            f_suffix = f_base.split("_", 1)[1]
 
                             new_f = f"{clean_label}_{f_suffix}{f_ext}"
-                            shutil.move(os.path.join(settings.gallery_dir, f), os.path.join(settings.gallery_dir, new_f))
+                            shutil.move(
+                                os.path.join(settings.gallery_dir, f),
+                                os.path.join(settings.gallery_dir, new_f),
+                            )
                             if f == filename:
                                 new_filename = new_f
 
-                    if not 'new_filename' in locals():
-                        new_filename = f"{clean_label}_{base_name}{ext}" # Fallback
+                    if "new_filename" not in locals():
+                        new_filename = f"{clean_label}_{base_name}{ext}"  # Fallback
                 else:
                     # Same label, nothing to do?
                     new_filename = filename
@@ -252,6 +283,7 @@ async def label_image(
     except Exception as e:
         logger.error(f"Error labeling image: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
 
 @app.post("/delete")
 async def delete_image(filename: str = Form(...), source: str = Form(...)):
@@ -275,7 +307,9 @@ async def delete_image(filename: str = Form(...), source: str = Form(...)):
         if deleted:
             return {"status": "deleted"}
         else:
-            return JSONResponse({"status": "error", "message": "File not found"}, status_code=404)
+            return JSONResponse(
+                {"status": "error", "message": "File not found"}, status_code=404
+            )
     except Exception as e:
         logger.error(f"Error deleting image: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)

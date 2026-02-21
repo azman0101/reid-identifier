@@ -1,7 +1,5 @@
-import os
 import unittest
 import numpy as np
-import cv2
 from unittest.mock import MagicMock, patch
 
 # Mock settings before importing reid_engine
@@ -11,9 +9,9 @@ from unittest.mock import MagicMock, patch
 from reid_app.reid_engine import ReIDCore
 from reid_app.config import settings
 
-class TestReIDCore(unittest.TestCase):
 
-    @patch('reid_app.reid_engine.Core')
+class TestReIDCore(unittest.TestCase):
+    @patch("reid_app.reid_engine.Core")
     def test_initialization_cpu_fallback(self, mock_core_class):
         # Setup mock openvino core
         mock_ie = MagicMock()
@@ -35,24 +33,29 @@ class TestReIDCore(unittest.TestCase):
         mock_ie.compile_model.side_effect = side_effect
 
         # Patch settings and os.path.exists
-        with patch.object(settings, 'device_name', 'GPU'),              patch.object(settings, 'model_path', 'dummy.xml'),              patch('os.path.exists', return_value=True):
-
+        with (
+            patch.object(settings, "device_name", "GPU"),
+            patch.object(settings, "model_path", "dummy.xml"),
+            patch("os.path.exists", return_value=True),
+        ):
             # Initialize engine
             engine = ReIDCore()
 
             # Verify calls
-            mock_ie.read_model.assert_called_with(model='dummy.xml')
+            mock_ie.read_model.assert_called_with(model="dummy.xml")
 
             # compile_model should be called with GPU first
             mock_ie.compile_model.assert_any_call(model=mock_model, device_name="GPU")
 
             # Then with CPU
-            mock_ie.compile_model.assert_called_with(model=mock_model, device_name="CPU")
+            mock_ie.compile_model.assert_called_with(
+                model=mock_model, device_name="CPU"
+            )
 
             # Ensure engine uses the CPU model
             self.assertEqual(engine.compiled_model, mock_compiled_model_cpu)
 
-    @patch('reid_app.reid_engine.Core')
+    @patch("reid_app.reid_engine.Core")
     def test_get_embedding(self, mock_core_class):
         mock_ie = MagicMock()
         mock_core_class.return_value = mock_ie
@@ -69,10 +72,14 @@ class TestReIDCore(unittest.TestCase):
 
         # Mock the __call__ of compiled_model
         # It takes a list of tensors and returns a dict
-        mock_compiled_model.side_effect = lambda inputs: {mock_output_layer: expected_embedding}
+        mock_compiled_model.side_effect = lambda inputs: {
+            mock_output_layer: expected_embedding
+        }
 
-        with patch.object(settings, 'model_path', 'dummy.xml'),              patch('os.path.exists', return_value=True):
-
+        with (
+            patch.object(settings, "model_path", "dummy.xml"),
+            patch("os.path.exists", return_value=True),
+        ):
             engine = ReIDCore()
 
             # Create dummy image
@@ -82,5 +89,6 @@ class TestReIDCore(unittest.TestCase):
             self.assertEqual(embedding.shape, (256,))
             np.testing.assert_array_equal(embedding, expected_embedding)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

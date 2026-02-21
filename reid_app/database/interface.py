@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
+
 class ReIDRepository(ABC):
     """
     Abstract interface for database operations.
@@ -14,7 +15,15 @@ class ReIDRepository(ABC):
         pass
 
     @abstractmethod
-    def add_event(self, event_id: str, camera: str, timestamp: datetime, label: str, snapshot_path: str, image_hash: str = None):
+    def add_event(
+        self,
+        event_id: str,
+        camera: str,
+        timestamp: datetime,
+        label: str,
+        snapshot_path: str,
+        image_hash: str = None,
+    ):
         """
         Record a new detection event.
         :param event_id: Frigate event ID (PK)

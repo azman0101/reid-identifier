@@ -10,6 +10,7 @@ from .config import settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 class ReIDCore:
     def __init__(self):
         self.ie = Core()
@@ -25,16 +26,22 @@ class ReIDCore:
 
     def _load_model(self):
         if not os.path.exists(self.model_path):
-            raise FileNotFoundError(f"Model file not found at {self.model_path}. Run model_manager.py first.")
+            raise FileNotFoundError(
+                f"Model file not found at {self.model_path}. Run model_manager.py first."
+            )
 
         logger.info(f"Loading model from {self.model_path}...")
         model = self.ie.read_model(model=self.model_path)
 
         try:
             logger.info(f"Compiling model for device: {settings.device_name}")
-            self.compiled_model = self.ie.compile_model(model=model, device_name=settings.device_name)
+            self.compiled_model = self.ie.compile_model(
+                model=model, device_name=settings.device_name
+            )
         except RuntimeError as e:
-            logger.warning(f"Failed to compile model on {settings.device_name}: {e}. Falling back to CPU.")
+            logger.warning(
+                f"Failed to compile model on {settings.device_name}: {e}. Falling back to CPU."
+            )
             self.compiled_model = self.ie.compile_model(model=model, device_name="CPU")
 
         self.output_layer = self.compiled_model.output(0)
@@ -69,9 +76,9 @@ class ReIDCore:
         new_gallery = {}
         if os.path.exists(self.gallery_dir):
             for filename in os.listdir(self.gallery_dir):
-                if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
-                    if '_' in filename:
-                        label = filename.split('_')[0]
+                if filename.lower().endswith((".jpg", ".jpeg", ".png")):
+                    if "_" in filename:
+                        label = filename.split("_")[0]
                     else:
                         label = os.path.splitext(filename)[0]
 
@@ -93,7 +100,9 @@ class ReIDCore:
 
         with self.lock:
             self.known_silhouettes = new_gallery
-            logger.info(f"Gallery reloaded. Known identities: {list(self.known_silhouettes.keys())}")
+            logger.info(
+                f"Gallery reloaded. Known identities: {list(self.known_silhouettes.keys())}"
+            )
 
     def find_match(self, embedding, threshold=0.65):
         """

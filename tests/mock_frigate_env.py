@@ -1,8 +1,5 @@
 import http.server
 import socketserver
-import threading
-import time
-import json
 import os
 import cv2
 import numpy as np
@@ -27,6 +24,7 @@ img = np.zeros((300, 300, 3), dtype=np.uint8)
 cv2.rectangle(img, (50, 50), (250, 250), (0, 255, 0), -1)
 cv2.imwrite("dummy_snapshot.jpg", img)
 
+
 class FrigateHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         if "snapshot.jpg" in self.path:
@@ -50,7 +48,7 @@ class FrigateHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         if "sub_label" in self.path:
-            content_length = int(self.headers.get('Content-Length', 0))
+            content_length = int(self.headers.get("Content-Length", 0))
             post_data = self.rfile.read(content_length)
             print(f"Received sub_label update: {post_data.decode('utf-8')}")
             self.send_response(200)
@@ -63,6 +61,7 @@ class FrigateHandler(http.server.SimpleHTTPRequestHandler):
         # Suppress logging for cleanliness
         pass
 
+
 def run_frigate_mock():
     # Allow reuse address
     socketserver.TCPServer.allow_reuse_address = True
@@ -73,8 +72,10 @@ def run_frigate_mock():
     except OSError as e:
         print(f"Failed to bind port {FRIGATE_PORT}: {e}")
 
+
 if __name__ == "__main__":
     print("Starting Mock Frigate HTTP Server...")
-    print("Run `python tests/publish_mock_event.py` in another terminal to publish events.")
+    print(
+        "Run `python tests/publish_mock_event.py` in another terminal to publish events."
+    )
     run_frigate_mock()
-
