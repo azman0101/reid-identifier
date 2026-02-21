@@ -35,6 +35,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: reid-identifier
+    privileged: true
     restart: unless-stopped
     depends_on:
       - mosquitto
