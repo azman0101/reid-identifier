@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     curl \
     ocl-icd-libopencl1 \
-    intel-opencl-icd \
+    && apt-get install -y --no-install-recommends intel-opencl-icd || true \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder
@@ -45,11 +45,25 @@ ENV PATH="/opt/venv/bin:$PATH"
 # This includes 'reid_app' package directory, 'pyproject.toml', etc.
 COPY . /app
 
-# Build static CSS with standalone Tailwind CLI (no Node.js required)
-RUN curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64 \
-    && chmod +x tailwindcss-linux-x64 \
-    && ./tailwindcss-linux-x64 -i reid_app/static/input.css -o reid_app/static/output.css --minify \
-    && rm tailwindcss-linux-x64
+# Build static CSS with standalone Tailwind CLI (architecture aware)
+# https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.0/tailwindcss-linux-arm64
+# https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.0/tailwindcss-linux-arm64-musl
+# https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.0/tailwindcss-linux-x64
+# https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.0/tailwindcss-linux-x64-musl
+# https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.0/tailwindcss-macos-arm64
+# https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.0/tailwindcss-macos-x64
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "arm64" ]; then \
+        TAILWIND_BIN="tailwindcss-linux-arm64"; \
+    elif [ "$ARCH" = "amd64" ]; then \
+        TAILWIND_BIN="tailwindcss-linux-x64"; \
+    else \
+        echo "Unsupported architecture: $ARCH" && exit 1; \
+    fi && \
+    curl -sLO "https://github.com/tailwindlabs/tailwindcss/releases/latest/download/$TAILWIND_BIN" && \
+    chmod +x "$TAILWIND_BIN" && \
+    ./"$TAILWIND_BIN" -i reid_app/static/input.css -o reid_app/static/output.css --minify && \
+    rm "$TAILWIND_BIN"
 
 # Set PYTHONPATH so python can find 'reid_app' package in /app
 ENV PYTHONPATH=/app
