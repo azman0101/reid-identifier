@@ -2,6 +2,8 @@ import os
 import shutil
 import logging
 import sys
+import cv2
+import numpy as np
 import requests
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Form
@@ -86,19 +88,78 @@ async def fetch_snapshot(event_id: str):
             return FileResponse(local_path)
 
         # 2. Fetch from Frigate
-        frigate_url = f"{settings.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
-        logger.info(f"Fetching snapshot for {event_id} from {frigate_url}")
+        # First get event details for bounding box
+        event_url = f"{settings.frigate_url}/api/events/{event_id}"
+        snapshot_url = f"{settings.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
 
-        def _download():
-            resp = requests.get(frigate_url, timeout=10)
-            if resp.status_code == 200:
-                with open(local_path, "wb") as f:
-                    f.write(resp.content)
+        def _download_and_crop():
+            try:
+                # Get Event Data for Box
+                box = None
+                data_box = None
+                try:
+                    ev_resp = requests.get(event_url, timeout=5)
+                    if ev_resp.status_code == 200:
+                        data = ev_resp.json()
+                        # Frigate 0.14+ often puts box in data.box (normalized)
+                        data_box = data.get("data", {}).get("box")
+                        # Fallback/Older versions might have box at root
+                        if not data_box:
+                            box = data.get("box")
+                except Exception as e:
+                    logger.warning(f"Could not fetch event details for {event_id}: {e}")
+
+                # Get Image
+                resp = requests.get(snapshot_url, timeout=10)
+                if resp.status_code != 200:
+                    return False
+
+                # Decode Image
+                image_array = np.asarray(bytearray(resp.content), dtype="uint8")
+                image_frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+                if image_frame is None:
+                    return False
+
+                # Crop Logic
+                h, w, _ = image_frame.shape
+                x1, y1, x2, y2 = 0, 0, w, h
+                cropped = False
+
+                if data_box and len(data_box) == 4:
+                    nx, ny, nw, nh = data_box
+                    x1 = int(nx * w)
+                    y1 = int(ny * h)
+                    x2 = int((nx + nw) * w)
+                    y2 = int((ny + nh) * h)
+                    cropped = True
+                elif box and len(box) == 4:
+                    x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
+                    cropped = True
+
+                if cropped:
+                    # Ensure bounds
+                    x1, y1 = max(0, x1), max(0, y1)
+                    x2, y2 = min(w, x2), min(h, y2)
+                    # 10% Margin
+                    margin_w = int((x2 - x1) * 0.10)
+                    margin_h = int((y2 - y1) * 0.10)
+                    cx1 = max(0, x1 - margin_w)
+                    cy1 = max(0, y1 - margin_h)
+                    cx2 = min(w, x2 + margin_w)
+                    cy2 = min(h, y2 + margin_h)
+
+                    if cx2 > cx1 and cy2 > cy1 and (cx2 - cx1 < w or cy2 - cy1 < h):
+                         image_frame = image_frame[cy1:cy2, cx1:cx2]
+                         logger.info(f"[{event_id}] Cropped snapshot to {cx1}:{cx2}, {cy1}:{cy2}")
+
+                # Save
+                cv2.imwrite(local_path, image_frame)
                 return True
-            return False
+            except Exception as e:
+                logger.error(f"Error processing snapshot download: {e}")
+                return False
 
-        success = await run_in_threadpool(_download)
-
+        success = await run_in_threadpool(_download_and_crop)
         if success:
             return FileResponse(local_path)
         else:
