@@ -86,6 +86,7 @@ async def fetch_snapshot(event_id: str):
 
         # 1. Check local
         if os.path.exists(local_path):
+            logger.info(f"Snapshot {filename} already exists locally. Serving from disk.")
             return FileResponse(local_path)
 
         # 2. Fetch from Frigate
@@ -100,8 +101,13 @@ async def fetch_snapshot(event_id: str):
                 data_box = None
                 try:
                     ev_resp = requests.get(event_url, timeout=5)
+                    logger.info(f"Fetch event {event_id}: HTTP {ev_resp.status_code}")
                     if ev_resp.status_code == 200:
                         data = ev_resp.json()
+                        # Debug: log keys in data
+                        logger.info(f"Event data keys: {list(data.keys())}")
+                        if "data" in data:
+                            logger.info(f"Event data[data] keys: {list(data.get('data', {}).keys())}")
                         # Frigate 0.14+ often puts box in data.box (normalized)
                         data_box = data.get("data", {}).get("box")
                         # Fallback/Older versions might have box at root
@@ -111,6 +117,7 @@ async def fetch_snapshot(event_id: str):
                     logger.warning(f"Could not fetch event details for {event_id}: {e}")
 
                 # Get Image
+                logger.info(f"Downloading snapshot from {snapshot_url}")
                 resp = requests.get(snapshot_url, timeout=10)
                 if resp.status_code != 200:
                     return False
@@ -118,6 +125,10 @@ async def fetch_snapshot(event_id: str):
                 # Decode Image
                 image_array = np.asarray(bytearray(resp.content), dtype="uint8")
                 image_frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+                if image_frame is not None:
+                    logger.info("Image decoded successfully. Calling crop_image_from_box...")
+                else:
+                    logger.error("Failed to decode image from bytes!")
                 if image_frame is None:
                     return False
 
