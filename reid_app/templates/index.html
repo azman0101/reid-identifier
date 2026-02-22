@@ -48,16 +48,27 @@
     <!-- Tab: Gallery -->
     <div id="tabGallery" class="hidden">
         <!-- Filters -->
-        <div class="flex gap-4 mb-6 bg-gray-800 p-3 rounded border border-gray-700 sticky top-0 z-20 shadow-lg">
-            <input type="text" id="filterLabel" placeholder="Filtrer Label"
+        <div
+            class="flex flex-col md:flex-row gap-4 mb-6 bg-gray-800 p-3 rounded border border-gray-700 sticky top-0 z-20 shadow-lg">
+            <select id="filterLabel"
                 class="bg-gray-700 text-white rounded px-2 py-1 text-sm outline-none flex-1 focus:ring-2 focus:ring-blue-500"
-                oninput="renderGalleryGrid()">
-            <input type="text" id="filterCamera" placeholder="Filtrer Caméra"
+                onchange="renderGalleryGrid()">
+                <option value="">Tous les labels (Identités)</option>
+            </select>
+            <select id="filterCamera"
                 class="bg-gray-700 text-white rounded px-2 py-1 text-sm outline-none flex-1 focus:ring-2 focus:ring-blue-500"
-                oninput="renderGalleryGrid()">
-            <input type="text" id="filterDate" placeholder="Filtrer Date (YYYY-MM-DD)"
-                class="bg-gray-700 text-white rounded px-2 py-1 text-sm outline-none flex-1 focus:ring-2 focus:ring-blue-500"
-                oninput="renderGalleryGrid()">
+                onchange="renderGalleryGrid()">
+                <option value="">Toutes les caméras</option>
+            </select>
+            <div class="flex items-center gap-2 flex-1">
+                <input type="date" id="filterDateStart"
+                    class="bg-gray-700 text-white rounded px-2 py-1 text-sm outline-none w-full focus:ring-2 focus:ring-blue-500"
+                    oninput="renderGalleryGrid()" title="Date de début">
+                <span class="text-gray-400 text-sm">au</span>
+                <input type="date" id="filterDateEnd"
+                    class="bg-gray-700 text-white rounded px-2 py-1 text-sm outline-none w-full focus:ring-2 focus:ring-blue-500"
+                    oninput="renderGalleryGrid()" title="Date de fin">
+            </div>
         </div>
         <div id="galleryGrid" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 mb-12">
             <!-- JS virtualized -->
@@ -82,6 +93,31 @@
 
         let activeTab = sessionStorage.getItem('activeTab') || 'unknowns';
         let galleryRendered = false;
+
+        function populateFilters() {
+            const labels = new Set();
+            const cameras = new Set();
+            galleryData.forEach(item => {
+                if (item.label) labels.add(item.label);
+                if (item.camera && item.camera !== "-") cameras.add(item.camera);
+            });
+
+            const labelSelect = document.getElementById('filterLabel');
+            Array.from(labels).sort().forEach(label => {
+                const opt = document.createElement('option');
+                opt.value = label;
+                opt.textContent = label;
+                labelSelect.appendChild(opt);
+            });
+
+            const cameraSelect = document.getElementById('filterCamera');
+            Array.from(cameras).sort().forEach(camera => {
+                const opt = document.createElement('option');
+                opt.value = camera;
+                opt.textContent = camera;
+                cameraSelect.appendChild(opt);
+            });
+        }
 
         function switchTab(tabId) {
             activeTab = tabId;
@@ -201,14 +237,20 @@
                 Array.from(grid.children).forEach(child => observer.unobserve(child));
                 grid.innerHTML = '';
 
-                const filterLabel = document.getElementById('filterLabel').value.toLowerCase();
-                const filterCamera = document.getElementById('filterCamera').value.toLowerCase();
-                const filterDate = document.getElementById('filterDate').value.toLowerCase();
+                const filterLabel = document.getElementById('filterLabel').value;
+                const filterCamera = document.getElementById('filterCamera').value;
+                const filterDateStart = document.getElementById('filterDateStart').value;
+                const filterDateEnd = document.getElementById('filterDateEnd').value;
 
                 const filtered = galleryData.filter(item => {
-                    if (filterLabel && !item.label.toLowerCase().includes(filterLabel)) return false;
-                    if (filterCamera && item.camera && !item.camera.toLowerCase().includes(filterCamera)) return false;
-                    if (filterDate && item.timestamp && !item.timestamp.toLowerCase().includes(filterDate)) return false;
+                    if (filterLabel && item.label !== filterLabel) return false;
+                    if (filterCamera && item.camera !== filterCamera) return false;
+
+                    let itemDateStr = item.frigate_timestamp !== "-" ? item.frigate_timestamp.split(' ')[0] : (item.timestamp !== "-" ? item.timestamp.split(' ')[0] : "");
+
+                    if (filterDateStart && itemDateStr < filterDateStart) return false;
+                    if (filterDateEnd && itemDateStr > filterDateEnd) return false;
+
                     return true;
                 });
 
@@ -348,6 +390,7 @@
         });
 
         // Initialize view
+        populateFilters();
         switchTab(activeTab);
         renderUnknownsGrid();
     </script>
