@@ -201,25 +201,44 @@ async def fetch_snapshot(event_id: str):
                 # Get Image
                 resp = requests.get(snapshot_url, timeout=10)
                 if resp.status_code != 200:
-                    return False
+                    return False, None
 
                 # Decode Image
                 image_array = np.asarray(bytearray(resp.content), dtype="uint8")
                 image_frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
                 if image_frame is None:
-                    return False
+                    return False, None
 
                 # Crop Logic (using utility)
                 image_frame = crop_image_from_box(image_frame, box, data_box)
-                # Save to unknown dir
-                cv2.imwrite(unknown_path, image_frame)
-                return True
+
+                # Check DB if this is an active unknown event
+                event = db_repo.get_event(event_id)
+                is_dashboard_unknown = False
+                if event and event.get("current_label") == "unknown":
+                    is_dashboard_unknown = True
+
+                if is_dashboard_unknown:
+                    # Save local for dashboard labeling
+                    cv2.imwrite(unknown_path, image_frame)
+                    return True, None
+                else:
+                    # Don't save locally (avoids orphan pollution during inspection)
+                    success, encoded_image = cv2.imencode(".jpg", image_frame)
+                    if success:
+                        return True, encoded_image.tobytes()
+                    return False, None
+
             except Exception as e:
                 logger.error(f"Error processing snapshot download: {e}")
-                return False
+                return False, None
 
-        success = await run_in_threadpool(_download_and_crop)
+        success, img_bytes = await run_in_threadpool(_download_and_crop)
         if success:
+            if img_bytes:
+                from fastapi import Response
+
+                return Response(content=img_bytes, media_type="image/jpeg")
             return FileResponse(unknown_path)
         else:
             return JSONResponse(
@@ -296,14 +315,59 @@ async def home(request: Request):
         db_files = set(u["filename"] for u in unknowns_data)
         for f in disk_files:
             if f not in db_files:
+                # Handle true orphan missing from DB: fetch metadata & suggest label
+                event_id = f.rsplit(".", 1)[0]
+                camera = "Unknown"
+                timestamp = "Unknown"
+                suggestion = None
+                suggestion_score = 0.0
+
+                try:
+                    ev_resp = requests.get(
+                        f"{settings.frigate_url}/api/events/{event_id}", timeout=2
+                    )
+                    if ev_resp.status_code == 200:
+                        data = ev_resp.json()
+                        camera = data.get("camera", "Unknown")
+                        ts = data.get("start_time")
+                        if ts:
+                            timestamp = datetime.fromtimestamp(ts).strftime(
+                                "%Y-%m-%d %H:%M:%S"
+                            )
+                except Exception:
+                    pass
+
+                try:
+                    if reid_core:
+                        full_path = os.path.join(settings.unknown_dir, f)
+                        img = cv2.imread(full_path)
+                        if img is not None:
+                            vec = reid_core.get_embedding(img)
+                            if vec is not None:
+                                match, score = reid_core.find_match(vec, threshold=0.5)
+                                if match:
+                                    suggestion = match
+                                    suggestion_score = round(score * 100, 1)
+                                else:
+                                    match, score = reid_core.find_match(
+                                        vec, threshold=0.4
+                                    )
+                                    if match:
+                                        suggestion = match
+                                        suggestion_score = round(score * 100, 1)
+                except Exception as e:
+                    logger.warning(f"Failed suggestion for orphan {f}: {e}")
+
                 unknowns_data.append(
                     {
                         "filename": f,
-                        "event_id": f.split(".")[0],
-                        "camera": "Unknown",
-                        "timestamp": "Unknown",
+                        "event_id": event_id,
+                        "camera": camera,
+                        "timestamp": timestamp,
                         "is_local": True,
                         "img_src": f"/unknown_imgs/{f}",
+                        "suggestion": suggestion,
+                        "suggestion_score": suggestion_score,
                     }
                 )
 
