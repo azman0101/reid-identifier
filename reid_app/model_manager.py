@@ -8,8 +8,8 @@ from .config import settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MODEL_XML_URL = "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2023.0/models_bin/1/person-reidentification-retail-0288/FP16/person-reidentification-retail-0288.xml"
-MODEL_BIN_URL = "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2023.0/models_bin/1/person-reidentification-retail-0288/FP16/person-reidentification-retail-0288.bin"
+MODEL_XML_URL = "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2023.2/models_bin/1/person-reidentification-retail-0288/FP16/person-reidentification-retail-0288.xml"
+MODEL_BIN_URL = "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2023.2/models_bin/1/person-reidentification-retail-0288/FP16/person-reidentification-retail-0288.bin"
 
 
 def download_file(url, filepath, max_retries=5, base_delay=1):
@@ -21,7 +21,9 @@ def download_file(url, filepath, max_retries=5, base_delay=1):
     last_exception = None
     for attempt in range(max_retries):
         try:
-            logger.info(f"Downloading {url} to {filepath} (Attempt {attempt + 1}/{max_retries})...")
+            logger.info(
+                f"Downloading {url} to {filepath} (Attempt {attempt + 1}/{max_retries})..."
+            )
             response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()
             with open(filepath, "wb") as f:
@@ -37,7 +39,7 @@ def download_file(url, filepath, max_retries=5, base_delay=1):
                 os.remove(filepath)
 
             if attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt)
+                delay = base_delay * (2**attempt)
                 logger.info(f"Retrying in {delay} seconds...")
                 time.sleep(delay)
 
