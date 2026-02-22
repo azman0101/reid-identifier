@@ -26,99 +26,44 @@
         </div>
     </div>
 
-    <!-- Unknowns -->
-    <h2 class="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2">Nouvelles détections (À nommer)</h2>
-    <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 mb-12">
-        {% for item in unknowns %}
-        <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3">
-            <div class="relative group cursor-pointer" onclick="openZoomModal('{{ item.img_src }}')">
-                <img src="{{ item.img_src }}" class="w-full h-48 object-cover rounded mb-3" loading="lazy"
-                    onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'300\' height=\'400\'><rect width=\'300\' height=\'400\' fill=\'%23374151\'/><text x=\'50%\' y=\'50%\' dominant-baseline=\'middle\' text-anchor=\'middle\' fill=\'%239CA3AF\' font-family=\'sans-serif\' font-size=\'16\'>Introuvable</text></svg>';">
-                {% if not item.is_local %}
-                <div class="absolute top-2 right-2 bg-blue-600/80 text-white text-xs px-2 py-1 rounded-full shadow backdrop-blur-sm z-10"
-                    title="Fetched from Frigate">☁️</div>
-                {% endif %}
-                <div
-                    class="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center rounded mb-3">
-                    <span class="text-white opacity-0 group-hover:opacity-100 text-3xl drop-shadow-lg">🔍</span>
-                </div>
-            </div>
-            <div class="text-xs text-gray-400 mb-2">
-                <p>📸 {{ item.camera }}</p>
-                <p>🕒 {{ item.timestamp }}</p>
-            </div>
-            <form id="form_{{ item.event_id }}" onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2">
-                <input type="hidden" name="filename" value="{{ item.filename }}">
-                <input type="hidden" name="source" value="unknown">
-
-                {% if item.suggestion %}
-                <button type="button"
-                    onclick="useSuggestion('{{ item.event_id }}', '{{ item.suggestion }}', 'form_{{ item.event_id }}')"
-                    class="bg-green-600 hover:bg-green-500 w-full py-1 rounded text-sm font-semibold transition flex justify-between px-2 items-center"
-                    title="Score: {{ item.suggestion_score }}%">
-                    <span>💡 {{ item.suggestion }}</span>
-                    <span class="text-xs opacity-80">{{ item.suggestion_score }}%</span>
-                </button>
-                {% endif %}
-
-                <input type="text" id="new_label_{{ item.event_id }}" name="new_label" placeholder="Nom (ex: Maël)"
-                    required
-                    class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 outline-none w-full">
-                <div class="flex gap-2">
-                    <button type="submit"
-                        class="bg-blue-600 hover:bg-blue-500 w-full py-1 rounded text-sm font-bold transition">Valider</button>
-                    <button type="button" onclick="deleteImg('{{ item.filename }}', 'unknown')"
-                        class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
-                </div>
-            </form>
-        </div>
-        {% endfor %}
-        {% if not unknowns %}<p class="text-gray-400 col-span-full text-center py-4">Aucune nouvelle silhouette
-            détectée.</p>{% endif %}
+    <!-- Tabs Navigation -->
+    <div class="mb-6 flex gap-4 border-b border-gray-700 pb-2">
+        <button id="tabUnknownsBtn" onclick="switchTab('unknowns')"
+            class="text-xl font-bold pb-2 text-blue-400 border-b-2 border-blue-400 transition-colors">Nouvelles
+            détections (À nommer)</button>
+        <button id="tabGalleryBtn" onclick="switchTab('gallery')"
+            class="text-xl font-bold pb-2 text-gray-400 hover:text-gray-200 transition-colors">Galerie d'apprentissage
+            (Déjà nommées)</button>
     </div>
 
-    <!-- Gallery -->
-    <h2 class="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2">Galerie d'apprentissage (Déjà nommées)
-    </h2>
-    <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
-        {% for item in gallery %}
-        <div
-            class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3 opacity-90 hover:opacity-100 transition">
-            <div class="relative group cursor-pointer" onclick="openZoomModal('/gallery_imgs/{{ item.filename }}')">
-                <img src="/gallery_imgs/{{ item.filename }}" class="w-full h-48 object-cover rounded mb-3"
-                    loading="lazy">
-                <div
-                    class="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center rounded mb-3">
-                    <span class="text-white opacity-0 group-hover:opacity-100 text-3xl drop-shadow-lg">🔍</span>
-                </div>
-            </div>
-            <p class="text-center font-bold text-green-400 mb-1 truncate" title="{{ item.label }}">{{ item.label }}
-            </p>
-            <div class="text-xs text-gray-400 mb-2 text-center">
-                <p>{{ item.timestamp }}</p>
-            </div>
-            <form id="form_{{ item.filename }}" onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2">
-                <input type="hidden" name="filename" value="{{ item.filename }}">
-                <input type="hidden" name="source" value="gallery">
-                <input type="text" name="new_label" placeholder="Corriger..." required
-                    class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-yellow-500 outline-none w-full">
-                <select name="update_type"
-                    class="bg-gray-700 text-white text-xs rounded px-2 py-1 outline-none w-full border border-gray-600">
-                    <option value="image">Cette image seule</option>
-                    <option value="identity">Toute l'identité</option>
-                </select>
-                <div class="flex gap-2">
-                    <button type="submit"
-                        class="bg-yellow-600 hover:bg-yellow-500 w-full py-1 rounded text-sm font-bold transition">Modifier</button>
-                    <button type="button" onclick="deleteImg('{{ item.filename }}', 'gallery')"
-                        class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
-                </div>
-            </form>
+    <!-- Tab: Unknowns -->
+    <div id="tabUnknowns">
+        <div id="unknownsGrid" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 mb-12">
+            <!-- JS virtualized -->
         </div>
-        {% endfor %}
-        {% if not gallery %}<p class="text-gray-400 col-span-full text-center py-4">La galerie est vide.</p>{% endif
-        %}
+        <div id="unknownsEmpty" class="hidden text-gray-400 col-span-full text-center py-4">Aucune nouvelle silhouette
+            détectée.</div>
     </div>
+
+    <!-- Tab: Gallery -->
+    <div id="tabGallery" class="hidden">
+        <!-- Filters -->
+        <div class="flex gap-4 mb-6 bg-gray-800 p-3 rounded border border-gray-700 sticky top-0 z-20 shadow-lg">
+            <input type="text" id="filterLabel" placeholder="Filtrer Label"
+                class="bg-gray-700 text-white rounded px-2 py-1 text-sm outline-none flex-1 focus:ring-2 focus:ring-blue-500"
+                oninput="renderGalleryGrid()">
+            <input type="text" id="filterCamera" placeholder="Filtrer Caméra"
+                class="bg-gray-700 text-white rounded px-2 py-1 text-sm outline-none flex-1 focus:ring-2 focus:ring-blue-500"
+                oninput="renderGalleryGrid()">
+            <input type="text" id="filterDate" placeholder="Filtrer Date (YYYY-MM-DD)"
+                class="bg-gray-700 text-white rounded px-2 py-1 text-sm outline-none flex-1 focus:ring-2 focus:ring-blue-500"
+                oninput="renderGalleryGrid()">
+        </div>
+        <div id="galleryGrid" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 mb-12">
+            <!-- JS virtualized -->
+        </div>
+        <div id="galleryEmpty" class="hidden text-gray-400 col-span-full text-center py-4">La galerie est vide (ou aucun
+            résultat).</div>
     </div>
 
     <!-- Image Zoom Modal -->
@@ -132,6 +77,185 @@
     </div>
 
     <script>
+        const unknownsData = {{ unknowns | tojson | safe }};
+        const galleryData = {{ gallery | tojson | safe }};
+
+        let activeTab = 'unknowns';
+        let galleryRendered = false;
+
+        function switchTab(tabId) {
+            activeTab = tabId;
+            if (tabId === 'unknowns') {
+                document.getElementById('tabUnknowns').classList.remove('hidden');
+                document.getElementById('tabGallery').classList.add('hidden');
+                document.getElementById('tabUnknownsBtn').className = "text-xl font-bold pb-2 text-blue-400 border-b-2 border-blue-400 transition-colors";
+                document.getElementById('tabGalleryBtn').className = "text-xl font-bold pb-2 text-gray-400 hover:text-gray-200 transition-colors cursor-pointer";
+            } else {
+                document.getElementById('tabGallery').classList.remove('hidden');
+                document.getElementById('tabUnknowns').classList.add('hidden');
+                document.getElementById('tabGalleryBtn').className = "text-xl font-bold pb-2 text-blue-400 border-b-2 border-blue-400 transition-colors";
+                document.getElementById('tabUnknownsBtn').className = "text-xl font-bold pb-2 text-gray-400 hover:text-gray-200 transition-colors cursor-pointer";
+                if (!galleryRendered) {
+                    renderGalleryGrid();
+                    galleryRendered = true;
+                }
+            }
+        }
+
+        // Intersection Observer Setup
+        const observerOptions = { root: null, rootMargin: '400px', threshold: 0 };
+        const observer = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                const div = entry.target;
+                if (entry.isIntersecting) {
+                    if (!div.dataset.loaded) {
+                        div.innerHTML = div.dataset.htmlContent;
+                        div.dataset.loaded = 'true';
+                    }
+                } else {
+                    if (div.dataset.loaded) {
+                        div.innerHTML = '';
+                        div.dataset.loaded = '';
+                    }
+                }
+            });
+        }, observerOptions);
+
+        function escapeHtml(unsafe) {
+            if (!unsafe) return "";
+            return unsafe.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+
+        function renderUnknownsGrid() {
+            const grid = document.getElementById('unknownsGrid');
+            const empty = document.getElementById('unknownsEmpty');
+            grid.innerHTML = '';
+
+            if (unknownsData.length === 0) {
+                empty.classList.remove('hidden');
+                return;
+            }
+            empty.classList.add('hidden');
+
+            unknownsData.forEach(item => {
+                const wrapper = document.createElement('div');
+                wrapper.className = "min-h-[350px]";
+
+                let suggestionHtml = '';
+                if (item.suggestion) {
+                    suggestionHtml = `
+                        <button type="button"
+                            onclick="useSuggestion('${escapeHtml(item.event_id)}', '${escapeHtml(item.suggestion)}', 'form_${escapeHtml(item.event_id)}')"
+                            class="bg-green-600 hover:bg-green-500 w-full py-1 rounded text-sm font-semibold transition flex justify-between px-2 items-center"
+                            title="Score: ${item.suggestion_score}%">
+                            <span>💡 ${escapeHtml(item.suggestion)}</span>
+                            <span class="text-xs opacity-80">${item.suggestion_score}%</span>
+                        </button>
+                    `;
+                }
+
+                let cloudHtml = item.is_local ? '' : `
+                    <div class="absolute top-2 right-2 bg-blue-600/80 text-white text-xs px-2 py-1 rounded-full shadow backdrop-blur-sm z-10" title="Fetched from Frigate">☁️</div>
+                `;
+
+                wrapper.dataset.htmlContent = `
+                    <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3 h-full flex flex-col opacity-90 hover:opacity-100 transition">
+                        <div class="relative group cursor-pointer" onclick="openZoomModal('${escapeHtml(item.img_src)}')">
+                            <img src="${escapeHtml(item.img_src)}" class="w-full h-48 object-cover rounded mb-3" loading="lazy"
+                                onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'300\\' height=\\'400\\'><rect width=\\'300\\' height=\\'400\\' fill=\\'%23374151\\'/><text x=\\'50%\\' y=\\'50%\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' fill=\\'%239CA3AF\\' font-family=\\'sans-serif\\' font-size=\\'16\\'>Introuvable</text></svg>';">
+                            ${cloudHtml}
+                            <div class="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center rounded mb-3">
+                                <span class="text-white opacity-0 group-hover:opacity-100 text-3xl drop-shadow-lg">🔍</span>
+                            </div>
+                        </div>
+                        <div class="text-xs text-gray-400 mb-2 flex-grow">
+                            <p>📸 ${escapeHtml(item.camera)}</p>
+                            <p>🕒 ${escapeHtml(item.timestamp)}</p>
+                        </div>
+                        <form id="form_${escapeHtml(item.event_id)}" onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2 mt-auto">
+                            <input type="hidden" name="filename" value="${escapeHtml(item.filename)}">
+                            <input type="hidden" name="source" value="unknown">
+                            ${suggestionHtml}
+                            <input type="text" id="new_label_${escapeHtml(item.event_id)}" name="new_label" placeholder="Nom (ex: Maël)" required class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 outline-none w-full">
+                            <div class="flex gap-2">
+                                <button type="submit" class="bg-blue-600 hover:bg-blue-500 w-full py-1 rounded text-sm font-bold transition">Valider</button>
+                                <button type="button" onclick="deleteImg('${escapeHtml(item.filename)}', 'unknown')" class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
+                            </div>
+                        </form>
+                    </div>
+                `;
+                grid.appendChild(wrapper);
+                observer.observe(wrapper);
+            });
+        }
+
+        let debounceTimer;
+        function renderGalleryGrid() {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                const grid = document.getElementById('galleryGrid');
+                const empty = document.getElementById('galleryEmpty');
+
+                Array.from(grid.children).forEach(child => observer.unobserve(child));
+                grid.innerHTML = '';
+
+                const filterLabel = document.getElementById('filterLabel').value.toLowerCase();
+                const filterCamera = document.getElementById('filterCamera').value.toLowerCase();
+                const filterDate = document.getElementById('filterDate').value.toLowerCase();
+
+                const filtered = galleryData.filter(item => {
+                    if (filterLabel && !item.label.toLowerCase().includes(filterLabel)) return false;
+                    if (filterCamera && item.camera && !item.camera.toLowerCase().includes(filterCamera)) return false;
+                    if (filterDate && item.timestamp && !item.timestamp.toLowerCase().includes(filterDate)) return false;
+                    return true;
+                });
+
+                if (filtered.length === 0) {
+                    empty.classList.remove('hidden');
+                    return;
+                }
+                empty.classList.add('hidden');
+
+                filtered.forEach(item => {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = "min-h-[350px]";
+
+                    let cameraHtml = item.camera && item.camera !== "-" ? `<p>📸 ${escapeHtml(item.camera)}</p>` : '';
+
+                    wrapper.dataset.htmlContent = `
+                    <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3 opacity-90 hover:opacity-100 transition h-full flex flex-col">
+                        <div class="relative group cursor-pointer" onclick="openZoomModal('/gallery_imgs/${escapeHtml(item.filename)}')">
+                            <img src="/gallery_imgs/${escapeHtml(item.filename)}" class="w-full h-48 object-cover rounded mb-3" loading="lazy">
+                            <div class="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center rounded mb-3">
+                                <span class="text-white opacity-0 group-hover:opacity-100 text-3xl drop-shadow-lg">🔍</span>
+                            </div>
+                        </div>
+                        <p class="text-center font-bold text-green-400 mb-1 truncate" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</p>
+                        <div class="text-xs text-gray-400 mb-2 text-center flex-grow flex flex-col justify-center">
+                            ${cameraHtml}
+                            <p>🕒 ${escapeHtml(item.timestamp)}</p>
+                        </div>
+                        <form id="form_${escapeHtml(item.filename)}" onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2 mt-auto">
+                            <input type="hidden" name="filename" value="${escapeHtml(item.filename)}">
+                            <input type="hidden" name="source" value="gallery">
+                            <input type="text" name="new_label" placeholder="Corriger..." required class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-yellow-500 outline-none w-full">
+                            <select name="update_type" class="bg-gray-700 text-white text-xs rounded px-2 py-1 outline-none w-full border border-gray-600">
+                                <option value="image">Cette image seule</option>
+                                <option value="identity">Toute l'identité</option>
+                            </select>
+                            <div class="flex gap-2">
+                                <button type="submit" class="bg-yellow-600 hover:bg-yellow-500 w-full py-1 rounded text-sm font-bold transition">Modifier</button>
+                                <button type="button" onclick="deleteImg('${escapeHtml(item.filename)}', 'gallery')" class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
+                            </div>
+                        </form>
+                    </div>
+                    `;
+                    grid.appendChild(wrapper);
+                    observer.observe(wrapper);
+                });
+            }, 100);
+        }
+
         async function submitForm(e, endpoint) {
             e.preventDefault();
             const btn = e.target.querySelector('button[type="submit"]');
@@ -165,7 +289,7 @@
                 input.value = suggestionText;
                 const form = document.getElementById(formId);
                 const btn = form.querySelector('button[type="submit"]');
-                btn.click();
+                if (btn) btn.click();
             }
         }
 
@@ -195,12 +319,11 @@
             const zoomImg = document.getElementById('zoomImage');
             zoomImg.src = imageSrc;
             modal.classList.remove('hidden');
-            // Slight delay to allow display:block before applying scale transition
             setTimeout(() => {
                 zoomImg.classList.remove('scale-95');
                 zoomImg.classList.add('scale-100');
             }, 10);
-            document.body.style.overflow = 'hidden'; // Prevent background scrolling
+            document.body.style.overflow = 'hidden';
         }
 
         function closeZoomModal() {
@@ -215,12 +338,14 @@
             }, 200);
         }
 
-        // Handle Escape key to close modal
         document.addEventListener('keydown', function (event) {
             if (event.key === "Escape") {
                 closeZoomModal();
             }
         });
+
+        // Initialize view
+        renderUnknownsGrid();
     </script>
     <footer class="mt-12 pt-4 border-t border-gray-700 text-center text-xs text-gray-500">
         <p>Frigate ReID | Build: {{ version.build_date }} | Commit: <a
