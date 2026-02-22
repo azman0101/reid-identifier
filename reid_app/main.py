@@ -294,12 +294,22 @@ async def home(request: Request):
                             suggestion = match
                             suggestion_score = round(score * 100, 1)
 
+            frigate_timestamp = "-"
+            try:
+                ts_part = event["id"].split("-")[0]
+                frigate_timestamp = datetime.fromtimestamp(float(ts_part)).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+            except Exception:
+                pass
+
             unknowns_data.append(
                 {
                     "filename": filename,
                     "event_id": event["id"],
                     "camera": event["camera"],
                     "timestamp": event["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),
+                    "frigate_timestamp": frigate_timestamp,
                     "is_local": is_local,
                     "img_src": img_src,
                     "suggestion": suggestion,
@@ -358,12 +368,22 @@ async def home(request: Request):
                 except Exception as e:
                     logger.warning(f"Failed suggestion for orphan {f}: {e}")
 
+                frigate_timestamp = "-"
+                try:
+                    ts_part = event_id.split("-")[0]
+                    frigate_timestamp = datetime.fromtimestamp(float(ts_part)).strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                except Exception:
+                    pass
+
                 unknowns_data.append(
                     {
                         "filename": f,
                         "event_id": event_id,
                         "camera": camera,
                         "timestamp": timestamp,
+                        "frigate_timestamp": frigate_timestamp,
                         "is_local": True,
                         "img_src": f"/unknown_imgs/{f}",
                         "suggestion": suggestion,
@@ -389,6 +409,15 @@ async def home(request: Request):
             if len(parts) >= 2:
                 event_id = parts[-1]
                 event = db_repo.get_event(event_id)
+                frigate_timestamp = "-"
+                try:
+                    ts_part = event_id.split("-")[0]
+                    frigate_timestamp = datetime.fromtimestamp(float(ts_part)).strftime(
+                        "%Y-%m-%d %H:%M"
+                    )
+                except Exception:
+                    pass
+
                 if event:
                     gallery_data.append(
                         {
@@ -396,6 +425,7 @@ async def home(request: Request):
                             "label": event["current_label"],
                             "camera": event["camera"],
                             "timestamp": event["timestamp"].strftime("%Y-%m-%d %H:%M"),
+                            "frigate_timestamp": frigate_timestamp,
                         }
                     )
                 else:
@@ -406,11 +436,18 @@ async def home(request: Request):
                             "label": parts[0],
                             "camera": "-",
                             "timestamp": "-",
+                            "frigate_timestamp": frigate_timestamp,
                         }
                     )
             else:
                 gallery_data.append(
-                    {"filename": f, "label": f, "camera": "-", "timestamp": "-"}
+                    {
+                        "filename": f,
+                        "label": f,
+                        "camera": "-",
+                        "timestamp": "-",
+                        "frigate_timestamp": "-",
+                    }
                 )
 
     except Exception as e:

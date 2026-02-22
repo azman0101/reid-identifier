@@ -80,11 +80,12 @@
         const unknownsData = {{ unknowns | tojson | safe }};
         const galleryData = {{ gallery | tojson | safe }};
 
-        let activeTab = 'unknowns';
+        let activeTab = sessionStorage.getItem('activeTab') || 'unknowns';
         let galleryRendered = false;
 
         function switchTab(tabId) {
             activeTab = tabId;
+            sessionStorage.setItem('activeTab', tabId);
             if (tabId === 'unknowns') {
                 document.getElementById('tabUnknowns').classList.remove('hidden');
                 document.getElementById('tabGallery').classList.add('hidden');
@@ -162,7 +163,7 @@
                     <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3 h-full flex flex-col opacity-90 hover:opacity-100 transition">
                         <div class="relative group cursor-pointer" onclick="openZoomModal('${escapeHtml(item.img_src)}')">
                             <img src="${escapeHtml(item.img_src)}" class="w-full h-48 object-cover rounded mb-3" loading="lazy"
-                                onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'300\\' height=\\'400\\'><rect width=\\'300\\' height=\\'400\\' fill=\\'%23374151\\'/><text x=\\'50%\\' y=\\'50%\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' fill=\\'%239CA3AF\\' font-family=\\'sans-serif\\' font-size=\\'16\\'>Introuvable</text></svg>';">
+                                onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22300%22 height=%22400%22><rect width=%22300%22 height=%22400%22 fill=%22%23374151%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%239CA3AF%22 font-family=%22sans-serif%22 font-size=%2216%22>Introuvable</text></svg>';">
                             ${cloudHtml}
                             <div class="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center rounded mb-3">
                                 <span class="text-white opacity-0 group-hover:opacity-100 text-3xl drop-shadow-lg">🔍</span>
@@ -170,7 +171,8 @@
                         </div>
                         <div class="text-xs text-gray-400 mb-2 flex-grow">
                             <p>📸 ${escapeHtml(item.camera)}</p>
-                            <p>🕒 ${escapeHtml(item.timestamp)}</p>
+                            <p title="Date Frigate">🕒 ${escapeHtml(item.frigate_timestamp)}</p>
+                            <p title="Date Label">🏷️ ${escapeHtml(item.timestamp)}</p>
                         </div>
                         <form id="form_${escapeHtml(item.event_id)}" onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2 mt-auto">
                             <input type="hidden" name="filename" value="${escapeHtml(item.filename)}">
@@ -233,7 +235,8 @@
                         <p class="text-center font-bold text-green-400 mb-1 truncate" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</p>
                         <div class="text-xs text-gray-400 mb-2 text-center flex-grow flex flex-col justify-center">
                             ${cameraHtml}
-                            <p>🕒 ${escapeHtml(item.timestamp)}</p>
+                            <p title="Date Frigate">🕒 ${escapeHtml(item.frigate_timestamp)}</p>
+                            <p title="Date Label">🏷️ ${escapeHtml(item.timestamp)}</p>
                         </div>
                         <form id="form_${escapeHtml(item.filename)}" onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2 mt-auto">
                             <input type="hidden" name="filename" value="${escapeHtml(item.filename)}">
@@ -345,6 +348,7 @@
         });
 
         // Initialize view
+        switchTab(activeTab);
         renderUnknownsGrid();
     </script>
     <footer class="mt-12 pt-4 border-t border-gray-700 text-center text-xs text-gray-500">
