@@ -17,6 +17,11 @@ class ReIDCore:
         self.model_path = settings.model_path
         self.gallery_dir = settings.gallery_dir
         self.known_silhouettes = {}
+        # Cached numpy structures for fast vectorized lookup
+        self._known_embeddings_matrix = np.empty((0, 256), dtype=np.float32)
+        self._known_labels_list = []
+        self._known_norms = np.empty((0,), dtype=np.float32)
+
         self.compiled_model = None
         self.output_layer = None
         self.lock = threading.Lock()  # Protects shared state (known_silhouettes)
@@ -98,10 +103,34 @@ class ReIDCore:
                     else:
                         logger.warning(f"Could not read image: {filename}")
 
+        # Flatten the gallery for vectorization
+        all_embeddings = []
+        all_labels = []
+
+        for label, embeddings in new_gallery.items():
+            for emb in embeddings:
+                norm = np.linalg.norm(emb)
+                if norm > 0:  # Pre-filter zero-norm embeddings
+                    all_embeddings.append(emb)
+                    all_labels.append(label)
+
+        # Convert to numpy arrays
+        if all_embeddings:
+            embeddings_matrix = np.stack(all_embeddings).astype(np.float32)
+            norms_array = np.linalg.norm(embeddings_matrix, axis=1)
+        else:
+            embeddings_matrix = np.empty((0, 256), dtype=np.float32)
+            norms_array = np.empty((0,), dtype=np.float32)
+
         with self.lock:
             self.known_silhouettes = new_gallery
+            self._known_embeddings_matrix = embeddings_matrix
+            self._known_labels_list = all_labels
+            self._known_norms = norms_array
+
             logger.info(
-                f"Gallery reloaded. Known identities: {list(self.known_silhouettes.keys())}"
+                f"Gallery reloaded. Known identities: {list(self.known_silhouettes.keys())}. "
+                f"Total embeddings: {len(self._known_labels_list)}"
             )
 
     def find_match(self, embedding, threshold=0.65):
@@ -111,28 +140,30 @@ class ReIDCore:
         label is None if the similarity score is below the threshold.
         Thread-safe access to known_silhouettes.
         """
-        best_match = None
-        best_score = -1.0
-
         # Normalize the input embedding once
         norm_embedding = np.linalg.norm(embedding)
         if norm_embedding == 0:
             return None, 0.0
 
         with self.lock:
-            # Iterate over a snapshot/copy or under lock
-            # Iterating under lock is safer and fast enough since it's just dot products
-            for label, embeddings in self.known_silhouettes.items():
-                for known_emb in embeddings:
-                    norm_known = np.linalg.norm(known_emb)
-                    if norm_known == 0:
-                        continue
+            if self._known_embeddings_matrix.shape[0] == 0:
+                return None, 0.0
 
-                    score = np.dot(embedding, known_emb) / (norm_embedding * norm_known)
+            # Vectorized Cosine Similarity
+            # scores = (A . B) / (|A| * |B|)
+            # matrix dot embedding -> shape (N,)
+            dot_products = np.dot(self._known_embeddings_matrix, embedding)
 
-                    if score > best_score:
-                        best_score = score
-                        best_match = label
+            # Divide by norms
+            # _known_norms contains non-zero norms (filtered during reload)
+            # norm_embedding is non-zero (checked above)
+            # We can use np.true_divide or simply /
+            scores = dot_products / (self._known_norms * norm_embedding)
+
+            # Find best match
+            best_idx = np.argmax(scores)
+            best_score = float(scores[best_idx])
+            best_match = self._known_labels_list[best_idx]
 
         logger.debug(f"Best match: {best_match} with score: {best_score}")
 
