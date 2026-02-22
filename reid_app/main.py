@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import normalize
+import umap
 
 from .config import settings
 from .reid_engine import ReIDCore
@@ -371,6 +372,13 @@ async def visualization(request: Request):
     )
 
 
+@app.get("/visualization_umap", response_class=HTMLResponse)
+async def visualization_umap(request: Request):
+    return templates.TemplateResponse(
+        "visualization_umap.html", {"request": request, "version": version_info}
+    )
+
+
 @app.get("/api/scatter")
 async def get_scatter_data():
     """Returns 2D t-SNE projection of vectors."""
@@ -463,6 +471,96 @@ async def get_scatter_data():
 
     except Exception as e:
         logger.error(f"Error computing t-SNE data: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/umap")
+async def get_umap_data():
+    """Returns 2D UMAP projection of vectors."""
+    try:
+
+        def _compute_umap():
+            events = db_repo.get_all_vectors()
+            if len(events) < 5:  # UMAP needs some points
+                return []
+
+            # Limit to most recent 2000 points for performance
+            events = sorted(
+                events,
+                key=lambda x: x["timestamp"] if x["timestamp"] else datetime.min,
+                reverse=True,
+            )[:2000]
+
+            ids = []
+            labels = []
+            vectors = []
+            snapshots = []
+            timestamps = []
+
+            for e in events:
+                if not e.get("vector"):
+                    continue
+                vec = np.frombuffer(e["vector"], dtype=np.float32)
+                if vec.shape != (256,):
+                    continue
+
+                ids.append(e["id"])
+                labels.append(e["current_label"])
+                vectors.append(vec)
+
+                snapshots.append(f"/snapshot/{e['id']}")
+                timestamps.append(
+                    e["timestamp"].strftime("%Y-%m-%d %H:%M") if e["timestamp"] else ""
+                )
+
+            if len(vectors) < 5:
+                return []
+
+            # Normalize and UMAP
+            data_matrix = np.array(vectors, dtype=np.float32)
+            # Normalize to unit length (L2) - crucial for Cosine Similarity approximation
+            data_matrix = normalize(data_matrix, norm="l2")
+
+            n_samples = data_matrix.shape[0]
+            n_neighbors = min(15, n_samples - 1)
+
+            reducer = umap.UMAP(
+                n_neighbors=n_neighbors,
+                n_components=2,
+                metric="cosine",
+                random_state=42,
+            )
+            projected = reducer.fit_transform(data_matrix)
+
+            # Generate colors
+            def get_color(label):
+                if label == "unknown":
+                    return "#888888"
+                hash_val = sum(ord(c) for c in label)
+                hue = (hash_val * 137) % 360
+                return f"hsl({hue}, 70%, 50%)"
+
+            result = []
+            for i in range(len(ids)):
+                result.append(
+                    {
+                        "id": ids[i],
+                        "x": float(projected[i, 0]),
+                        "y": float(projected[i, 1]),
+                        "label": labels[i],
+                        "color": get_color(labels[i]),
+                        "snapshot_url": snapshots[i],
+                        "timestamp": timestamps[i],
+                    }
+                )
+            return result
+
+        # Run CPU-heavy task in threadpool
+        result = await run_in_threadpool(_compute_umap)
+        return result
+
+    except Exception as e:
+        logger.error(f"Error computing UMAP data: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 

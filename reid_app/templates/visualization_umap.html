@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Frigate ReID - Visualisation</title>
+    <title>Frigate ReID - Visualisation UMAP</title>
     <link href="/static/output.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -17,7 +17,7 @@
 
 <body class="bg-gray-900 text-white p-8 h-screen flex flex-col">
     <div class="flex justify-between items-center mb-6">
-        <h1 class="text-3xl font-bold text-blue-400">Visualisation des Silhouettes (t-SNE)</h1>
+        <h1 class="text-3xl font-bold text-blue-400">Visualisation des Silhouettes (UMAP)</h1>
         <a href="/"
             class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 shadow transition font-semibold text-sm">⬅️
             Retour</a>
@@ -41,7 +41,7 @@
 
             // Fetch Data
             try {
-                const response = await fetch('/api/scatter');
+                const response = await fetch('/api/umap');
                 let data;
                 try {
                     data = await response.json();
