@@ -426,7 +426,7 @@ async def get_scatter_data():
             tsne = TSNE(
                 n_components=2,
                 perplexity=perplexity,
-                n_iter=1000,
+                max_iter=1000,
                 metric="cosine",
                 init="pca",
                 learning_rate="auto",
