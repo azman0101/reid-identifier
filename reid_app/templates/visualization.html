@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Frigate ReID - Visualisation</title>
-    <link href="/static/input.css" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="/static/output.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         /* Custom scrollbar for dark mode if needed */
@@ -34,7 +33,17 @@
             // Fetch Data
             try {
                 const response = await fetch('/api/scatter');
-                const data = await response.json();
+                let data;
+                try {
+                    data = await response.json();
+                } catch (e) {
+                    data = {error: "Failed to parse JSON response"};
+                }
+
+                if (!response.ok || data.error) {
+                    alert("Erreur backend: " + (data.error || response.statusText));
+                    return;
+                }
 
                 if (!data || data.length === 0) {
                     // Draw a placeholder message on canvas

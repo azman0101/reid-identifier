@@ -4,6 +4,7 @@ import json
 import logging
 import sys
 import threading
+from datetime import datetime
 from .utils import crop_image_from_box
 import cv2
 import numpy as np
@@ -42,15 +43,15 @@ def run_backfill(core, repo):
         total = 0
 
         # Pre-scan gallery to make lookups faster
-        gallery_map = {} # event_id -> filename
+        gallery_map = {}  # event_id -> filename
         if os.path.exists(settings.gallery_dir):
             for f in os.listdir(settings.gallery_dir):
-                if f.lower().endswith(('.jpg', '.jpeg', '.png')):
-                     # format: Label_ID.jpg
-                     parts = f.rsplit('.', 1)[0].split('_')
-                     if len(parts) >= 2:
-                         evt_id = parts[-1]
-                         gallery_map[evt_id] = f
+                if f.lower().endswith((".jpg", ".jpeg", ".png")):
+                    # format: Label_ID.jpg
+                    parts = f.rsplit(".", 1)[0].split("_")
+                    if len(parts) >= 2:
+                        evt_id = parts[-1]
+                        gallery_map[evt_id] = f
 
         for event in events:
             # Check if vector is missing (None or empty bytes)
@@ -79,7 +80,9 @@ def run_backfill(core, repo):
                         count += 1
 
         if count > 0:
-            logger.info(f"Backfill complete: Updated {count} vectors out of {total} missing.")
+            logger.info(
+                f"Backfill complete: Updated {count} vectors out of {total} missing."
+            )
         else:
             logger.info("Backfill complete: No vectors needed update.")
 
@@ -119,7 +122,9 @@ async def lifespan(app: FastAPI):
 
     # Start Backfill
     if reid_core and db_repo:
-        threading.Thread(target=run_backfill, args=(reid_core, db_repo), daemon=True).start()
+        threading.Thread(
+            target=run_backfill, args=(reid_core, db_repo), daemon=True
+        ).start()
 
     yield
 
@@ -133,16 +138,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 # Load Version Info
-version_info = {'build_date': 'Unknown', 'git_sha': 'Unknown'}
+version_info = {"build_date": "Unknown", "git_sha": "Unknown"}
 try:
-    if os.path.exists('reid_app/version.json'):
-        with open('reid_app/version.json', 'r') as f:
+    if os.path.exists("reid_app/version.json"):
+        with open("reid_app/version.json", "r") as f:
             version_info = json.load(f)
-    elif os.path.exists('/app/reid_app/version.json'):
-        with open('/app/reid_app/version.json', 'r') as f:
+    elif os.path.exists("/app/reid_app/version.json"):
+        with open("/app/reid_app/version.json", "r") as f:
             version_info = json.load(f)
 except Exception as e:
-    logging.warning(f'Could not load version info: {e}')
+    logging.warning(f"Could not load version info: {e}")
 templates = Jinja2Templates(directory="reid_app/templates")
 
 # Mount static files
@@ -168,12 +173,14 @@ async def fetch_snapshot(event_id: str):
         if os.path.exists(settings.gallery_dir):
             for f in os.listdir(settings.gallery_dir):
                 if f.endswith(f"_{event_id}.jpg") or f == filename:
-                     return FileResponse(os.path.join(settings.gallery_dir, f))
+                    return FileResponse(os.path.join(settings.gallery_dir, f))
 
         # 3. Fetch from Frigate
         # First get event details for bounding box
         event_url = f"{settings.frigate_url}/api/events/{event_id}"
-        snapshot_url = f"{settings.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
+        snapshot_url = (
+            f"{settings.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
+        )
 
         def _download_and_crop():
             try:
@@ -214,10 +221,13 @@ async def fetch_snapshot(event_id: str):
         if success:
             return FileResponse(unknown_path)
         else:
-            return JSONResponse({"status": "error", "message": "Snapshot not found"}, status_code=404)
+            return JSONResponse(
+                {"status": "error", "message": "Snapshot not found"}, status_code=404
+            )
     except Exception as e:
         logger.error(f"Error fetching snapshot {event_id}: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -242,9 +252,9 @@ async def home(request: Request):
             is_local = os.path.exists(full_path)
 
             if is_local:
-                 img_src = f"/unknown_imgs/{filename}"
+                img_src = f"/unknown_imgs/{filename}"
             else:
-                 img_src = f"/snapshot/{event['id']}"
+                img_src = f"/snapshot/{event['id']}"
 
             unknowns_data.append(
                 {
@@ -253,7 +263,7 @@ async def home(request: Request):
                     "camera": event["camera"],
                     "timestamp": event["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),
                     "is_local": is_local,
-                    "img_src": img_src
+                    "img_src": img_src,
                 }
             )
         # Also catch files on disk that might not be in DB (orphaned)
@@ -323,7 +333,12 @@ async def home(request: Request):
 
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "version": version_info, "unknowns": unknowns_data, "gallery": gallery_data},
+        {
+            "request": request,
+            "version": version_info,
+            "unknowns": unknowns_data,
+            "gallery": gallery_data,
+        },
     )
 
 
@@ -340,28 +355,38 @@ async def db_viewer(request: Request):
     return templates.TemplateResponse(
         "db_viewer.html",
         {
-            "request": request, "version": version_info,
+            "request": request,
+            "version": version_info,
             "events": events,
             "history": history,
             "external_url": settings.external_url.rstrip("/"),
         },
     )
 
+
 @app.get("/visualization", response_class=HTMLResponse)
 async def visualization(request: Request):
-    return templates.TemplateResponse("visualization.html", {"request": request, "version": version_info})
+    return templates.TemplateResponse(
+        "visualization.html", {"request": request, "version": version_info}
+    )
+
 
 @app.get("/api/scatter")
 async def get_scatter_data():
     """Returns 2D t-SNE projection of vectors."""
     try:
+
         def _compute_tsne():
             events = db_repo.get_all_vectors()
             if len(events) < 5:  # t-SNE needs more points than PCA
-                 return []
+                return []
 
             # Limit to most recent 2000 points for performance
-            events = sorted(events, key=lambda x: x["timestamp"] if x["timestamp"] else datetime.min, reverse=True)[:2000]
+            events = sorted(
+                events,
+                key=lambda x: x["timestamp"] if x["timestamp"] else datetime.min,
+                reverse=True,
+            )[:2000]
 
             ids = []
             labels = []
@@ -370,16 +395,20 @@ async def get_scatter_data():
             timestamps = []
 
             for e in events:
-                if not e.get("vector"): continue
+                if not e.get("vector"):
+                    continue
                 vec = np.frombuffer(e["vector"], dtype=np.float32)
-                if vec.shape != (256,): continue
+                if vec.shape != (256,):
+                    continue
 
                 ids.append(e["id"])
                 labels.append(e["current_label"])
                 vectors.append(vec)
 
                 snapshots.append(f"/snapshot/{e['id']}")
-                timestamps.append(e["timestamp"].strftime("%Y-%m-%d %H:%M") if e["timestamp"] else "")
+                timestamps.append(
+                    e["timestamp"].strftime("%Y-%m-%d %H:%M") if e["timestamp"] else ""
+                )
 
             if len(vectors) < 5:
                 return []
@@ -387,34 +416,45 @@ async def get_scatter_data():
             # Normalize and t-SNE
             data_matrix = np.array(vectors, dtype=np.float32)
             # Normalize to unit length (L2) - crucial for Cosine Similarity approximation
-            data_matrix = normalize(data_matrix, norm='l2')
+            data_matrix = normalize(data_matrix, norm="l2")
 
             # Using metric='cosine' directly tells t-SNE to respect angular distances
             # Perplexity: 30 is default, but for small datasets (5-50 points) it should be smaller
             n_samples = data_matrix.shape[0]
             perplexity = min(30, n_samples - 1)
 
-            tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=1000, metric='cosine', init='pca', learning_rate='auto', random_state=42)
+            tsne = TSNE(
+                n_components=2,
+                perplexity=perplexity,
+                n_iter=1000,
+                metric="cosine",
+                init="pca",
+                learning_rate="auto",
+                random_state=42,
+            )
             projected = tsne.fit_transform(data_matrix)
 
             # Generate colors
             def get_color(label):
-                if label == "unknown": return "#888888"
+                if label == "unknown":
+                    return "#888888"
                 hash_val = sum(ord(c) for c in label)
                 hue = (hash_val * 137) % 360
                 return f"hsl({hue}, 70%, 50%)"
 
             result = []
             for i in range(len(ids)):
-                result.append({
-                    "id": ids[i],
-                    "x": float(projected[i, 0]),
-                    "y": float(projected[i, 1]),
-                    "label": labels[i],
-                    "color": get_color(labels[i]),
-                    "snapshot_url": snapshots[i],
-                    "timestamp": timestamps[i]
-                })
+                result.append(
+                    {
+                        "id": ids[i],
+                        "x": float(projected[i, 0]),
+                        "y": float(projected[i, 1]),
+                        "label": labels[i],
+                        "color": get_color(labels[i]),
+                        "snapshot_url": snapshots[i],
+                        "timestamp": timestamps[i],
+                    }
+                )
             return result
 
         # Run CPU-heavy task in threadpool
