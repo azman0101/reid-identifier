@@ -37,6 +37,7 @@ class TestReIDCore(unittest.TestCase):
             patch.object(settings, "device_name", "GPU"),
             patch.object(settings, "model_path", "dummy.xml"),
             patch("os.path.exists", return_value=True),
+            patch("os.listdir", return_value=[]),
         ):
             # Initialize engine
             engine = ReIDCore()
@@ -79,6 +80,7 @@ class TestReIDCore(unittest.TestCase):
         with (
             patch.object(settings, "model_path", "dummy.xml"),
             patch("os.path.exists", return_value=True),
+            patch("os.listdir", return_value=[]),
         ):
             engine = ReIDCore()
 
@@ -88,6 +90,94 @@ class TestReIDCore(unittest.TestCase):
 
             self.assertEqual(embedding.shape, (256,))
             np.testing.assert_array_equal(embedding, expected_embedding)
+
+    @patch("reid_app.reid_engine.Core")
+    def test_find_match_vectorized(self, mock_core_class):
+        # Setup mocks to avoid model loading
+        mock_ie = MagicMock()
+        mock_core_class.return_value = mock_ie
+        mock_ie.read_model.return_value = MagicMock()
+        mock_ie.compile_model.return_value = MagicMock()
+
+        with (
+            patch.object(settings, "model_path", "dummy.xml"),
+            patch("os.path.exists", return_value=True),
+            patch("os.listdir", return_value=[]),  # Don't load real gallery
+        ):
+            engine = ReIDCore()
+
+            # Create synthetic gallery
+            # Identity A: [1, 0, 0, ...]
+            # Identity B: [0, 1, 0, ...]
+
+            emb_a = np.zeros(256, dtype=np.float32)
+            emb_a[0] = 1.0
+
+            emb_b = np.zeros(256, dtype=np.float32)
+            emb_b[1] = 1.0
+
+            # Populate gallery manually via internal structures
+            # Case 1: Populated gallery
+            engine.gallery_embeddings = np.stack([emb_a, emb_b]).astype(np.float32)
+            engine.gallery_labels = ["A", "B"]
+
+            # Query close to A
+            query_a = np.zeros(256, dtype=np.float32)
+            query_a[0] = 0.9
+            query_a[1] = 0.1
+
+            label, score = engine.find_match(query_a, threshold=0.5)
+            self.assertEqual(label, "A")
+            self.assertGreater(score, 0.8)
+
+            # Query close to B
+            query_b = np.zeros(256, dtype=np.float32)
+            query_b[0] = 0.1
+            query_b[1] = 0.9
+
+            label, score = engine.find_match(query_b, threshold=0.5)
+            self.assertEqual(label, "B")
+            self.assertGreater(score, 0.8)
+
+            # Query orthogonal
+            query_z = np.zeros(256, dtype=np.float32)
+            query_z[2] = 1.0
+
+            label, score = engine.find_match(query_z, threshold=0.9)
+            self.assertIsNone(label)
+            self.assertEqual(score, 0.0)
+
+    @patch("reid_app.reid_engine.Core")
+    def test_zero_norm_handling(self, mock_core_class):
+        # Setup mocks
+        mock_ie = MagicMock()
+        mock_core_class.return_value = mock_ie
+        mock_ie.read_model.return_value = MagicMock()
+        mock_ie.compile_model.return_value = MagicMock()
+
+        with (
+            patch.object(settings, "model_path", "dummy.xml"),
+            patch("os.path.exists", return_value=True),
+            patch("os.listdir", return_value=[]),
+        ):
+            engine = ReIDCore()
+
+            # Empty gallery
+            engine.gallery_embeddings = np.empty((0, 256), dtype=np.float32)
+            engine.gallery_labels = []
+
+            label, score = engine.find_match(np.random.rand(256).astype(np.float32))
+            self.assertIsNone(label)
+            self.assertEqual(score, 0.0)
+
+            # Test that find_match handles zero-norm QUERY.
+            engine.gallery_embeddings = np.ones((1, 256), dtype=np.float32)
+            engine.gallery_labels = ["A"]
+
+            zero_query = np.zeros(256, dtype=np.float32)
+            label, score = engine.find_match(zero_query)
+            self.assertIsNone(label)
+            self.assertEqual(score, 0.0)
 
 
 if __name__ == "__main__":

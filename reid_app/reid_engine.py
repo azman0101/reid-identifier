@@ -16,7 +16,8 @@ class ReIDCore:
         self.ie = Core()
         self.model_path = settings.model_path
         self.gallery_dir = settings.gallery_dir
-        self.known_silhouettes = {}
+        self.gallery_embeddings = np.empty((0, 256), dtype=np.float32)
+        self.gallery_labels = []
         self.compiled_model = None
         self.output_layer = None
         self.lock = threading.Lock()  # Protects shared state (known_silhouettes)
@@ -73,7 +74,9 @@ class ReIDCore:
         """Reloads identities from the gallery directory into memory."""
         logger.info("Reloading gallery...")
 
-        new_gallery = {}
+        new_embeddings = []
+        new_labels = []
+
         if os.path.exists(self.gallery_dir):
             for filename in os.listdir(self.gallery_dir):
                 if filename.lower().endswith((".jpg", ".jpeg", ".png")):
@@ -87,22 +90,28 @@ class ReIDCore:
 
                     if img is not None:
                         try:
-                            # Note: get_embedding is thread-safe so we can call it here without lock,
-                            # but we are modifying local new_gallery.
+                            # Note: get_embedding is thread-safe so we can call it here without lock.
                             embedding = self.get_embedding(img)
-                            if label not in new_gallery:
-                                new_gallery[label] = []
-                            new_gallery[label].append(embedding)
+                            norm = np.linalg.norm(embedding)
+                            if norm > 0:
+                                normalized_emb = embedding / norm
+                                new_embeddings.append(normalized_emb)
+                                new_labels.append(label)
                         except Exception as e:
                             logger.error(f"Error processing {filename}: {e}")
                     else:
                         logger.warning(f"Could not read image: {filename}")
 
         with self.lock:
-            self.known_silhouettes = new_gallery
-            logger.info(
-                f"Gallery reloaded. Known identities: {list(self.known_silhouettes.keys())}"
-            )
+            if new_embeddings:
+                self.gallery_embeddings = np.array(new_embeddings, dtype=np.float32)
+                self.gallery_labels = new_labels
+            else:
+                self.gallery_embeddings = np.empty((0, 256), dtype=np.float32)
+                self.gallery_labels = []
+
+            unique_labels = list(set(self.gallery_labels))
+            logger.info(f"Gallery reloaded. Known identities: {unique_labels}")
 
     def find_match(self, embedding, threshold=0.65):
         """
@@ -111,28 +120,25 @@ class ReIDCore:
         label is None if the similarity score is below the threshold.
         Thread-safe access to known_silhouettes.
         """
-        best_match = None
-        best_score = -1.0
+        if self.gallery_embeddings.shape[0] == 0:
+            return None, 0.0
 
         # Normalize the input embedding once
         norm_embedding = np.linalg.norm(embedding)
         if norm_embedding == 0:
             return None, 0.0
 
+        normalized_query = embedding / norm_embedding
+
         with self.lock:
-            # Iterate over a snapshot/copy or under lock
-            # Iterating under lock is safer and fast enough since it's just dot products
-            for label, embeddings in self.known_silhouettes.items():
-                for known_emb in embeddings:
-                    norm_known = np.linalg.norm(known_emb)
-                    if norm_known == 0:
-                        continue
+            # Vectorized dot product against all known embeddings simultaneously
+            # shape of self.gallery_embeddings is (N, D), normalized_query is (D,)
+            # result is an array of shape (N,) containing all cosine similarity scores
+            scores = np.dot(self.gallery_embeddings, normalized_query)
 
-                    score = np.dot(embedding, known_emb) / (norm_embedding * norm_known)
-
-                    if score > best_score:
-                        best_score = score
-                        best_match = label
+            best_idx = np.argmax(scores)
+            best_score = float(scores[best_idx])
+            best_match = self.gallery_labels[best_idx]
 
         logger.debug(f"Best match: {best_match} with score: {best_score}")
 
