@@ -385,6 +385,37 @@ async def db_viewer(request: Request):
     )
 
 
+@app.get("/inspection", response_class=HTMLResponse)
+async def inspection(request: Request):
+    """Serve the inspection UI."""
+    return templates.TemplateResponse(
+        "inspection.html",
+        {"request": request, "version": version_info},
+    )
+
+
+@app.get("/api/inspection_events")
+async def get_inspection_events(limit: int = 50, cameras: str = ""):
+    """Fetch events directly from Frigate API that have snapshots but may need ReID review."""
+    try:
+        url = f"{settings.frigate_url}/api/events?labels=person&has_snapshot=1&limit={limit}"
+        if cameras:
+            url += f"&cameras={cameras}"
+
+        logger.info(f"Fetching inspection events from Frigate: {url}")
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        events = response.json()
+
+        # Filter logic (optional, but good for UX):
+        # For now we just return them all, the frontend will display them.
+
+        return JSONResponse({"status": "success", "events": events})
+    except Exception as e:
+        logger.error(f"Error fetching inspection events: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 @app.get("/visualization", response_class=HTMLResponse)
 async def visualization(request: Request):
     return templates.TemplateResponse(
@@ -723,4 +754,115 @@ async def delete_image(filename: str = Form(...), source: str = Form(...)):
             )
     except Exception as e:
         logger.error(f"Error deleting image: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@app.post("/frigate_label")
+async def frigate_label(
+    event_id: str = Form(...),
+    new_label: str = Form(...),
+):
+    """Downloads a snapshot from Frigate, saves it to the gallery, and labels it."""
+    try:
+        if not reid_core:
+            return JSONResponse(
+                {"status": "error", "message": "ReID Core down"}, status_code=500
+            )
+
+        clean_label = "".join([c for c in new_label if c.isalnum()]).capitalize()
+        if not clean_label:
+            return JSONResponse(
+                {"status": "error", "message": "Invalid label"}, status_code=400
+            )
+
+        # 1. Fetch event from Frigate DB to get bounding box if we use /snapshot.jpg?crop=1
+        event_url = f"{settings.frigate_url}/api/events/{event_id}"
+        snapshot_url = (
+            f"{settings.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
+        )
+
+        # Note: In production we should run this blocking operation in a threadpool
+        ev_resp = requests.get(event_url, timeout=5)
+        ev_resp.raise_for_status()
+        data = ev_resp.json()
+
+        box = data.get("box")
+        data_box = data.get("data", {}).get("box")
+        camera = data.get("camera", "unknown")
+
+        resp = requests.get(snapshot_url, timeout=10)
+        resp.raise_for_status()
+
+        image_array = np.asarray(bytearray(resp.content), dtype="uint8")
+        image_frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+        if image_frame is None:
+            return JSONResponse(
+                {"status": "error", "message": "Invalid image data"}, status_code=400
+            )
+
+        try:
+            h, w, _ = image_frame.shape
+            x1, y1, x2, y2 = 0, 0, w, h
+            cropped = False
+
+            if data_box and len(data_box) == 4:
+                nx, ny, nw, nh = data_box
+                x1 = int(nx * w)
+                y1 = int(ny * h)
+                x2 = int((nx + nw) * w)
+                y2 = int((ny + nh) * h)
+                cropped = True
+            elif box and len(box) == 4:
+                x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
+                cropped = True
+
+            if cropped:
+                x1, y1 = max(0, x1), max(0, y1)
+                x2, y2 = min(w, x2), min(h, y2)
+                margin_w = int((x2 - x1) * 0.10)
+                margin_h = int((y2 - y1) * 0.10)
+                cx1 = max(0, x1 - margin_w)
+                cy1 = max(0, y1 - margin_h)
+                cx2 = min(w, x2 + margin_w)
+                cy2 = min(h, y2 + margin_h)
+
+                if cx2 > cx1 and cy2 > cy1 and (cx2 - cx1 < w or cy2 - cy1 < h):
+                    image_frame = image_frame[cy1:cy2, cx1:cx2]
+        except Exception as e:
+            logger.warning(f"Failed manual crop: {e}")
+
+        # 2. Add to Local Gallery
+        new_filename = f"{clean_label}_{event_id}.jpg"
+        dest_path = os.path.join(settings.gallery_dir, new_filename)
+        cv2.imwrite(dest_path, image_frame)
+
+        # 3. Reload Core
+        reid_core.reload_gallery()
+
+        # 4. Inform Frigate
+        sub_label_url = f"{settings.frigate_url}/api/events/{event_id}/sub_label"
+        payload = {"subLabel": clean_label, "subLabelScore": 1.0, "camera": camera}
+        requests.post(
+            sub_label_url, json=payload, headers={"Content-Type": "application/json"}
+        )
+
+        # (Optional) Update local tracking DB
+        # db_repo.add_event(...) IF we want it tracked as a known event in our GUI.
+        from datetime import datetime
+
+        db_repo.add_event(
+            event_id=event_id,
+            camera=camera,
+            timestamp=datetime.fromtimestamp(
+                data.get("start_time", datetime.now().timestamp())
+            ),
+            label=clean_label,
+            snapshot_path="",
+            image_hash=None,
+        )
+
+        return JSONResponse({"status": "success", "new_filename": new_filename})
+
+    except Exception as e:
+        logger.error(f"Error processing frigate label: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)

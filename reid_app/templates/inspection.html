@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Frigate ReID - Mode Inspection</title>
+    <link href="/static/output.css" rel="stylesheet">
+</head>
+
+<body class="bg-gray-900 text-white p-8">
+    <div class="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
+        <h1 class="text-4xl font-bold text-blue-400">🕵️ Mode Inspection (Historique)</h1>
+        <div class="flex gap-4">
+            <a href="/"
+                class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 shadow transition font-semibold text-sm">⬅️
+                Retour Dashboard</a>
+        </div>
+    </div>
+
+    <p class="text-gray-400 mb-6">Ce mode permet d'explorer les événements détectés par Frigate dans le passé pour forcer leur identification ou ajouter de nouvelles silhouettes à la base d'apprentissage.</p>
+
+    <div class="flex gap-4 mb-6">
+        <input type="number" id="limitInput" value="50" class="bg-gray-800 text-white rounded px-3 py-2 border border-gray-700 w-24" title="Nombre d'événements">
+        <input type="text" id="camerasInput" placeholder="Caméras (ex: cam1,cam2)" class="bg-gray-800 text-white rounded px-3 py-2 border border-gray-700 flex-1">
+        <button onclick="fetchEvents()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded font-semibold transition">🔍 Rechercher</button>
+    </div>
+
+    <!-- Active Events -->
+    <div id="loading" class="hidden text-center text-gray-400 my-10">Chargement des événements de Frigate...</div>
+    <div id="eventsContainer" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 mb-12">
+        <!-- JS populated -->
+    </div>
+
+    <!-- Image Zoom Modal -->
+    <div id="zoomModal"
+        class="hidden fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 cursor-zoom-out"
+        onclick="closeZoomModal()">
+        <img id="zoomImage" src=""
+            class="max-w-full max-h-full object-contain rounded-lg shadow-2xl scale-95 transition-transform duration-200">
+        <button
+            class="absolute top-4 right-4 text-white text-4xl hover:text-gray-300 font-bold focus:outline-none">&times;</button>
+    </div>
+
+    <script>
+        const API_BASE = "{{ request.url.scheme }}://{{ request.url.netloc }}";
+
+        async function fetchEvents() {
+            const limit = document.getElementById('limitInput').value || 50;
+            const cameras = document.getElementById('camerasInput').value || "";
+
+            document.getElementById('eventsContainer').innerHTML = "";
+            document.getElementById('loading').classList.remove('hidden');
+
+            try {
+                const response = await fetch(`/api/inspection_events?limit=${limit}&cameras=${cameras}`);
+                const data = await response.json();
+
+                document.getElementById('loading').classList.add('hidden');
+
+                if (data.status === 'success' && data.events.length > 0) {
+                    renderEvents(data.events);
+                } else {
+                    document.getElementById('eventsContainer').innerHTML = "<p class='text-gray-400 col-span-full text-center py-4'>Aucun événement trouvé.</p>";
+                }
+            } catch (err) {
+                console.error(err);
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('eventsContainer').innerHTML = "<p class='text-red-400 col-span-full text-center py-4'>Erreur réseau lors de la récupération.</p>";
+            }
+        }
+
+        function renderEvents(events) {
+            const container = document.getElementById('eventsContainer');
+
+            // On top level frigate url is usually on the backend, we query snapshot through backend proxy to avoid CORS,
+            // or we use absolute frigate url if exposed.
+            // In main.py we fetch the snapshot from frigate. So we can just show the image directly if Frigate UI is accessible,
+            // but we might hit auth/CORS. Because we run as the app, let's use the Frigate URL if external_url is set, or proxy.
+            // Wait, we can just use the backend /snapshot proxy endpoint!
+
+            events.forEach(item => {
+                const date = new Date(item.start_time * 1000).toLocaleString();
+                const snapshotSrc = `/snapshot/${item.id}`; // Uses proxy
+                const subLabel = item.sub_label || "Aucun";
+
+                // Hide events that are already known if we only want missing ones
+                // if (item.sub_label) return;
+
+                const div = document.createElement('div');
+                div.className = "bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3";
+                div.id = `card_${item.id}`;
+
+                let colorClass = item.sub_label ? 'text-green-400' : 'text-gray-400';
+
+                div.innerHTML = `
+                    <div class="relative group cursor-pointer" onclick="openZoomModal('${snapshotSrc}')">
+                        <img src="${snapshotSrc}" class="w-full h-48 object-cover rounded mb-3" loading="lazy">
+                        <div class="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center rounded mb-3">
+                            <span class="text-white opacity-0 group-hover:opacity-100 text-3xl drop-shadow-lg">🔍</span>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-400 mb-2">
+                        <p>📸 ${item.camera}</p>
+                        <p>🕒 ${date}</p>
+                        <p>👤 Label Actuel: <strong class="${colorClass}">${subLabel}</strong></p>
+                    </div>
+                    <form onsubmit="submitInspectionForm(event, '${item.id}')" class="flex flex-col gap-2">
+                        <input type="text" name="new_label" placeholder="Forcer Nom (ex: Maël)" required
+                            class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 outline-none w-full">
+                        <button type="submit" class="bg-blue-600 hover:bg-blue-500 w-full py-1 rounded text-sm font-bold transition">Assigner & Ajouter</button>
+                    </form>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        async function submitInspectionForm(e, eventId) {
+            e.preventDefault();
+            const btn = e.target.querySelector('button[type="submit"]');
+            const newLabel = e.target.new_label.value;
+            const originalText = btn.innerText;
+            btn.disabled = true;
+            btn.innerText = "Wait...";
+
+            try {
+                const formData = new FormData();
+                formData.append("event_id", eventId);
+                formData.append("new_label", newLabel);
+
+                const response = await fetch('/frigate_label', { method: 'POST', body: formData });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    // Success, remove from view or show success
+                    const card = document.getElementById(`card_${eventId}`);
+                    card.innerHTML = `<div class="h-full flex items-center justify-center flex-col text-green-400 text-center"><span class="text-3xl mb-2">✅</span><p>Ajouté à la galerie sous le nom<br><b>${newLabel}</b></p></div>`;
+                    setTimeout(() => card.remove(), 2000); // Remove after 2s
+                } else {
+                    alert("Erreur: " + result.message);
+                    btn.disabled = false;
+                    btn.innerText = originalText;
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Erreur réseau");
+                btn.disabled = false;
+                btn.innerText = originalText;
+            }
+        }
+
+        function openZoomModal(imageSrc) {
+            const modal = document.getElementById('zoomModal');
+            const zoomImg = document.getElementById('zoomImage');
+            zoomImg.src = imageSrc;
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                zoomImg.classList.remove('scale-95');
+                zoomImg.classList.add('scale-100');
+            }, 10);
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeZoomModal() {
+            const modal = document.getElementById('zoomModal');
+            const zoomImg = document.getElementById('zoomImage');
+            zoomImg.classList.remove('scale-100');
+            zoomImg.classList.add('scale-95');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                zoomImg.src = '';
+                document.body.style.overflow = 'auto';
+            }, 200);
+        }
+
+        document.addEventListener('keydown', function (event) {
+            if (event.key === "Escape") {
+                closeZoomModal();
+            }
+        });
+
+        // Auto fetch on load
+        fetchEvents();
+    </script>
+</body>
+
+</html>
