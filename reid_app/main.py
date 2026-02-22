@@ -3,6 +3,7 @@ import shutil
 import json
 import logging
 import sys
+import threading
 from .utils import crop_image_from_box
 import cv2
 import numpy as np
@@ -28,6 +29,60 @@ logger = logging.getLogger(__name__)
 reid_core = None
 mqtt_worker = None
 db_repo = None
+
+
+def run_backfill(core, repo):
+    """Backfill vectors for events that are missing them."""
+    logger.info("Starting vector backfill process in background...")
+    try:
+        events = repo.get_all_events()
+        count = 0
+        total = 0
+
+        # Pre-scan gallery to make lookups faster
+        gallery_map = {} # event_id -> filename
+        if os.path.exists(settings.gallery_dir):
+            for f in os.listdir(settings.gallery_dir):
+                if f.lower().endswith(('.jpg', '.jpeg', '.png')):
+                     # format: Label_ID.jpg
+                     parts = f.rsplit('.', 1)[0].split('_')
+                     if len(parts) >= 2:
+                         evt_id = parts[-1]
+                         gallery_map[evt_id] = f
+
+        for event in events:
+            # Check if vector is missing (None or empty bytes)
+            if event.get("vector"):
+                continue
+
+            total += 1
+            event_id = event["id"]
+            img_path = None
+
+            # Check unknown dir
+            unknown_path = os.path.join(settings.unknown_dir, f"{event_id}.jpg")
+            if os.path.exists(unknown_path):
+                img_path = unknown_path
+
+            # Check gallery
+            elif event_id in gallery_map:
+                img_path = os.path.join(settings.gallery_dir, gallery_map[event_id])
+
+            if img_path:
+                img = cv2.imread(img_path)
+                if img is not None:
+                    embedding = core.get_embedding(img)
+                    if embedding is not None:
+                        repo.update_vector(event_id, embedding.tobytes())
+                        count += 1
+
+        if count > 0:
+            logger.info(f"Backfill complete: Updated {count} vectors out of {total} missing.")
+        else:
+            logger.info("Backfill complete: No vectors needed update.")
+
+    except Exception as e:
+        logger.error(f"Backfill process failed: {e}")
 
 
 @asynccontextmanager
@@ -59,6 +114,10 @@ async def lifespan(app: FastAPI):
     global mqtt_worker
     if reid_core:
         mqtt_worker = start_mqtt(reid_core, db_repo)
+
+    # Start Backfill
+    if reid_core and db_repo:
+        threading.Thread(target=run_backfill, args=(reid_core, db_repo), daemon=True).start()
 
     yield
 
@@ -95,14 +154,21 @@ async def fetch_snapshot(event_id: str):
     """Fetches a snapshot from local disk or Frigate API."""
     try:
         filename = f"{event_id}.jpg"
-        local_path = os.path.join(settings.unknown_dir, filename)
+        unknown_path = os.path.join(settings.unknown_dir, filename)
 
-        # 1. Check local
-        if os.path.exists(local_path):
-            logger.debug(f"Snapshot {filename} already exists locally. Serving from disk.")
-            return FileResponse(local_path)
+        # 1. Check local unknown dir
+        if os.path.exists(unknown_path):
+            return FileResponse(unknown_path)
 
-        # 2. Fetch from Frigate
+        # 2. Check local gallery dir
+        # We need to find matching file: Label_EventID.jpg
+        # Only scan if not in unknown
+        if os.path.exists(settings.gallery_dir):
+            for f in os.listdir(settings.gallery_dir):
+                if f.endswith(f"_{event_id}.jpg") or f == filename:
+                     return FileResponse(os.path.join(settings.gallery_dir, f))
+
+        # 3. Fetch from Frigate
         # First get event details for bounding box
         event_url = f"{settings.frigate_url}/api/events/{event_id}"
         snapshot_url = f"{settings.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
@@ -114,23 +180,15 @@ async def fetch_snapshot(event_id: str):
                 data_box = None
                 try:
                     ev_resp = requests.get(event_url, timeout=5)
-                    logger.debug(f"Fetch event {event_id}: HTTP {ev_resp.status_code}")
                     if ev_resp.status_code == 200:
                         data = ev_resp.json()
-                        # Debug: log keys in data
-                        logger.debug(f"Event data keys: {list(data.keys())}")
-                        if "data" in data:
-                            logger.debug(f"Event data[data] keys: {list(data.get('data', {}).keys())}")
-                        # Frigate 0.14+ often puts box in data.box (normalized)
                         data_box = data.get("data", {}).get("box")
-                        # Fallback/Older versions might have box at root
                         if not data_box:
                             box = data.get("box")
                 except Exception as e:
                     logger.warning(f"Could not fetch event details for {event_id}: {e}")
 
                 # Get Image
-                logger.debug(f"Downloading snapshot from {snapshot_url}")
                 resp = requests.get(snapshot_url, timeout=10)
                 if resp.status_code != 200:
                     return False
@@ -138,17 +196,13 @@ async def fetch_snapshot(event_id: str):
                 # Decode Image
                 image_array = np.asarray(bytearray(resp.content), dtype="uint8")
                 image_frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
-                if image_frame is not None:
-                    logger.debug("Image decoded successfully. Calling crop_image_from_box...")
-                else:
-                    logger.error("Failed to decode image from bytes!")
                 if image_frame is None:
                     return False
 
                 # Crop Logic (using utility)
                 image_frame = crop_image_from_box(image_frame, box, data_box)
-                # Save
-                cv2.imwrite(local_path, image_frame)
+                # Save to unknown dir
+                cv2.imwrite(unknown_path, image_frame)
                 return True
             except Exception as e:
                 logger.error(f"Error processing snapshot download: {e}")
@@ -156,7 +210,7 @@ async def fetch_snapshot(event_id: str):
 
         success = await run_in_threadpool(_download_and_crop)
         if success:
-            return FileResponse(local_path)
+            return FileResponse(unknown_path)
         else:
             return JSONResponse({"status": "error", "message": "Snapshot not found"}, status_code=404)
     except Exception as e:
@@ -290,6 +344,69 @@ async def db_viewer(request: Request):
             "external_url": settings.external_url.rstrip("/"),
         },
     )
+
+@app.get("/visualization", response_class=HTMLResponse)
+async def visualization(request: Request):
+    return templates.TemplateResponse("visualization.html", {"request": request, "version": version_info})
+
+@app.get("/api/scatter")
+async def get_scatter_data():
+    """Returns 2D PCA projection of vectors."""
+    try:
+        events = db_repo.get_all_vectors()
+        if len(events) < 2:
+             return []
+
+        # Prepare data for PCA
+        ids = []
+        labels = []
+        vectors = []
+        snapshots = []
+        timestamps = []
+
+        for e in events:
+            if not e.get("vector"): continue
+            vec = np.frombuffer(e["vector"], dtype=np.float32)
+            if vec.shape != (256,): continue
+
+            ids.append(e["id"])
+            labels.append(e["current_label"])
+            vectors.append(vec)
+
+            snapshots.append(f"/snapshot/{e['id']}")
+            timestamps.append(e["timestamp"].strftime("%Y-%m-%d %H:%M") if e["timestamp"] else "")
+
+        if len(vectors) < 2:
+            return []
+
+        # PCA
+        data_matrix = np.array(vectors, dtype=np.float32)
+        mean, eigenvectors = cv2.PCACompute(data_matrix, mean=None, maxComponents=2)
+        projected = cv2.PCAProject(data_matrix, mean, eigenvectors)
+
+        # Generate colors
+        def get_color(label):
+            if label == "unknown": return "#888888"
+            hash_val = sum(ord(c) for c in label)
+            hue = (hash_val * 137) % 360
+            return f"hsl({hue}, 70%, 50%)"
+
+        result = []
+        for i in range(len(ids)):
+            result.append({
+                "id": ids[i],
+                "x": float(projected[i, 0]),
+                "y": float(projected[i, 1]),
+                "label": labels[i],
+                "color": get_color(labels[i]),
+                "snapshot_url": snapshots[i],
+                "timestamp": timestamps[i]
+            })
+
+        return result
+    except Exception as e:
+        logger.error(f"Error computing scatter data: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.post("/label")

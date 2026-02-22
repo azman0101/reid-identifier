@@ -90,6 +90,7 @@ class MQTTWorker:
                 image_frame = crop_image_from_box(image_frame, box, data_box)
 
                 embedding = self.reid_core.get_embedding(image_frame)
+                vector_bytes = embedding.tobytes()
                 match, score = self.reid_core.find_match(embedding)
                 logger.info(
                     f"[{event_id}] ReID inference complete. Target identified as: {match if match else 'UNKNOWN'} (Score: {score:.3f})"
@@ -97,12 +98,6 @@ class MQTTWorker:
 
                 # Determine label
                 label = match if match else "unknown"
-
-                # Save snapshot path (relative)
-                # If matched, we don't save to unknown dir, but we should track where it went?
-                # Actually, if matched, we don't save the image file in our system usually (unless we want to add it to gallery).
-                # But for history, we might want to keep a reference.
-                # The current logic only saves if unknown.
 
                 snapshot_filename = f"{event_id}.jpg"
 
@@ -176,11 +171,6 @@ class MQTTWorker:
                         )
 
                     # We usually don't save the image locally if matched, unless we want to grow the gallery automatically.
-                    # For now, let's say we don't save the file locally to save space,
-                    # OR we could save it to a 'history' folder?
-                    # The prompt asked to track camera and date.
-                    # If we don't save the file, we can't show it in history if Frigate deletes it.
-                    # Let's stick to current logic: save only if unknown.
                     snapshot_path_db = ""
                 elif not match and not existing_sub_label:
                     # Unknown silhouette and not already labeled, save for backoffice
@@ -204,13 +194,10 @@ class MQTTWorker:
                     label=label,
                     snapshot_path=snapshot_path_db,
                     image_hash=image_hash,
+                    vector=vector_bytes
                 )
 
                 if match:
-                    # If matched automatically, we might want to record a system history entry?
-                    # The interface has 'add_event' which sets current_label.
-                    # We don't need to call update_label unless it changed from something else.
-                    # Initial insert is enough.
                     pass
 
             else:

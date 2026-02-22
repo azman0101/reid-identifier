@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <title>Frigate ReID - Visualisation</title>
+    <link href="/static/input.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Custom scrollbar for dark mode if needed */
+        body { background-color: #111827; color: white; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white p-8 h-screen flex flex-col">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold text-blue-400">Visualisation des Silhouettes (PCA 2D)</h1>
+        <a href="/" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 shadow transition font-semibold text-sm">⬅️ Retour</a>
+    </div>
+
+    <div class="flex-grow relative bg-gray-800 rounded-lg border border-gray-700 shadow-xl overflow-hidden p-4">
+        <canvas id="scatterChart"></canvas>
+    </div>
+
+    <!-- Hidden Tooltip Element -->
+    <div id="chart-tooltip" class="absolute hidden pointer-events-none bg-black/90 p-2 rounded border border-gray-600 shadow-2xl z-50 transition-opacity duration-150 flex flex-col items-center" style="width: 160px; min-height: 200px;">
+        <img id="tooltip-img" class="w-full h-40 object-cover rounded mb-2 bg-gray-700" src="">
+        <div id="tooltip-text" class="text-center text-xs font-bold text-white px-1 break-words w-full"></div>
+    </div>
+
+    <script>
+        async function initChart() {
+            const ctx = document.getElementById('scatterChart').getContext('2d');
+
+            // Fetch Data
+            try {
+                const response = await fetch('/api/scatter');
+                const data = await response.json();
+
+                if (!data || data.length === 0) {
+                    // Draw a placeholder message on canvas
+                    ctx.font = "20px Arial";
+                    ctx.fillStyle = "white";
+                    ctx.textAlign = "center";
+                    ctx.fillText("Pas assez de données pour la visualisation (min 2 vecteurs).", ctx.canvas.width/2, ctx.canvas.height/2);
+                    return;
+                }
+
+                // Group by Label for Legend
+                const datasets = {};
+                data.forEach(p => {
+                    if (!datasets[p.label]) {
+                        datasets[p.label] = {
+                            label: p.label,
+                            data: [],
+                            backgroundColor: p.color,
+                            pointRadius: 6,
+                            pointHoverRadius: 10
+                        };
+                    }
+                    datasets[p.label].data.push({ x: p.x, y: p.y, ...p });
+                });
+
+                const chartData = {
+                    datasets: Object.values(datasets)
+                };
+
+                const tooltipEl = document.getElementById('chart-tooltip');
+                const tooltipImg = document.getElementById('tooltip-img');
+                const tooltipText = document.getElementById('tooltip-text');
+
+                new Chart(ctx, {
+                    type: 'scatter',
+                    data: chartData,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: { grid: { color: '#374151' }, ticks: { color: '#9CA3AF' } },
+                            y: { grid: { color: '#374151' }, ticks: { color: '#9CA3AF' } }
+                        },
+                        plugins: {
+                            legend: { labels: { color: '#D1D5DB' } },
+                            tooltip: {
+                                enabled: false, // Disable default canvas tooltip
+                                external: function(context) {
+                                    // Tooltip Element
+                                    const tooltipModel = context.tooltip;
+
+                                    // Hide if no tooltip
+                                    if (tooltipModel.opacity === 0) {
+                                        tooltipEl.classList.add('hidden');
+                                        return;
+                                    }
+
+                                    // Set Text & Image
+                                    if (tooltipModel.body) {
+                                        const raw = tooltipModel.dataPoints[0].raw;
+                                        tooltipText.innerText = raw.label + "\n" + raw.timestamp;
+
+                                        // Lazy load: only set src when shown
+                                        // We use the full origin just to be safe in comparison, but raw.snapshot_url is relative
+                                        if (!tooltipImg.src.endsWith(raw.snapshot_url)) {
+                                            tooltipImg.src = raw.snapshot_url;
+                                        }
+                                    }
+
+                                    // Position
+                                    const position = context.chart.canvas.getBoundingClientRect();
+
+                                    // Simple collision detection for right edge
+                                    let left = position.left + window.pageXOffset + tooltipModel.caretX + 15;
+                                    if (left + 160 > window.innerWidth) {
+                                        left -= 180; // Flip to left
+                                    }
+
+                                    tooltipEl.classList.remove('hidden');
+                                    tooltipEl.style.left = left + 'px';
+                                    tooltipEl.style.top = position.top + window.pageYOffset + tooltipModel.caretY + 'px';
+                                }
+                            }
+                        },
+                        interaction: {
+                            mode: 'nearest',
+                            intersect: true
+                        }
+                    }
+                });
+            } catch (err) {
+                console.error(err);
+                alert("Erreur lors du chargement des données.");
+            }
+        }
+
+        initChart();
+    </script>
+</body>
+</html>

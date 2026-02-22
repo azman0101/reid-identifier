@@ -36,14 +36,18 @@ class SQLiteRepository(ReIDRepository):
                     )
                 """)
 
-                # Handle older schemas dynamically by adding the image_hash column
+                # Handle older schemas dynamically by adding columns
                 cursor.execute("PRAGMA table_info(events)")
                 columns = [info[1] for info in cursor.fetchall()]
+
                 if "image_hash" not in columns:
                     cursor.execute("ALTER TABLE events ADD COLUMN image_hash TEXT")
                     cursor.execute(
                         "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_image_hash ON events(image_hash)"
                     )
+
+                if "vector" not in columns:
+                    cursor.execute("ALTER TABLE events ADD COLUMN vector BLOB")
 
                 # Label History table
                 cursor.execute("""
@@ -76,16 +80,17 @@ class SQLiteRepository(ReIDRepository):
         label: str,
         snapshot_path: str,
         image_hash: str = None,
+        vector: bytes = None,
     ):
         try:
             with self._connect() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    INSERT INTO events (id, camera, timestamp, snapshot_path, current_label, image_hash)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO events (id, camera, timestamp, snapshot_path, current_label, image_hash, vector)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                    (event_id, camera, timestamp, snapshot_path, label, image_hash),
+                    (event_id, camera, timestamp, snapshot_path, label, image_hash, vector),
                 )
                 conn.commit()
                 logger.debug(f"Event {event_id} added successfully.")
@@ -95,6 +100,27 @@ class SQLiteRepository(ReIDRepository):
             )
         except Exception as e:
             logger.error(f"Failed to add event {event_id}: {e}")
+
+    def update_vector(self, event_id: str, vector: bytes):
+        """Update vector for a single event (used for backfill)"""
+        try:
+            with self._connect() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE events SET vector = ? WHERE id = ?",
+                    (vector, event_id),
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to update vector for {event_id}: {e}")
+
+    def get_all_vectors(self) -> List[Dict[str, Any]]:
+        """Retrieve all events that have a vector stored."""
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, current_label, vector, snapshot_path, timestamp FROM events WHERE vector IS NOT NULL")
+            return [dict(row) for row in cursor.fetchall()]
 
     def get_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
