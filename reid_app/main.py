@@ -14,6 +14,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
+from sklearn.manifold import TSNE
+from sklearn.preprocessing import normalize
 
 from .config import settings
 from .reid_engine import ReIDCore
@@ -351,61 +353,76 @@ async def visualization(request: Request):
 
 @app.get("/api/scatter")
 async def get_scatter_data():
-    """Returns 2D PCA projection of vectors."""
+    """Returns 2D t-SNE projection of vectors."""
     try:
-        events = db_repo.get_all_vectors()
-        if len(events) < 2:
-             return []
+        def _compute_tsne():
+            events = db_repo.get_all_vectors()
+            if len(events) < 5:  # t-SNE needs more points than PCA
+                 return []
 
-        # Prepare data for PCA
-        ids = []
-        labels = []
-        vectors = []
-        snapshots = []
-        timestamps = []
+            # Limit to most recent 2000 points for performance
+            events = sorted(events, key=lambda x: x["timestamp"] if x["timestamp"] else datetime.min, reverse=True)[:2000]
 
-        for e in events:
-            if not e.get("vector"): continue
-            vec = np.frombuffer(e["vector"], dtype=np.float32)
-            if vec.shape != (256,): continue
+            ids = []
+            labels = []
+            vectors = []
+            snapshots = []
+            timestamps = []
 
-            ids.append(e["id"])
-            labels.append(e["current_label"])
-            vectors.append(vec)
+            for e in events:
+                if not e.get("vector"): continue
+                vec = np.frombuffer(e["vector"], dtype=np.float32)
+                if vec.shape != (256,): continue
 
-            snapshots.append(f"/snapshot/{e['id']}")
-            timestamps.append(e["timestamp"].strftime("%Y-%m-%d %H:%M") if e["timestamp"] else "")
+                ids.append(e["id"])
+                labels.append(e["current_label"])
+                vectors.append(vec)
 
-        if len(vectors) < 2:
-            return []
+                snapshots.append(f"/snapshot/{e['id']}")
+                timestamps.append(e["timestamp"].strftime("%Y-%m-%d %H:%M") if e["timestamp"] else "")
 
-        # PCA
-        data_matrix = np.array(vectors, dtype=np.float32)
-        mean, eigenvectors = cv2.PCACompute(data_matrix, mean=None, maxComponents=2)
-        projected = cv2.PCAProject(data_matrix, mean, eigenvectors)
+            if len(vectors) < 5:
+                return []
 
-        # Generate colors
-        def get_color(label):
-            if label == "unknown": return "#888888"
-            hash_val = sum(ord(c) for c in label)
-            hue = (hash_val * 137) % 360
-            return f"hsl({hue}, 70%, 50%)"
+            # Normalize and t-SNE
+            data_matrix = np.array(vectors, dtype=np.float32)
+            # Normalize to unit length (L2) - crucial for Cosine Similarity approximation
+            data_matrix = normalize(data_matrix, norm='l2')
 
-        result = []
-        for i in range(len(ids)):
-            result.append({
-                "id": ids[i],
-                "x": float(projected[i, 0]),
-                "y": float(projected[i, 1]),
-                "label": labels[i],
-                "color": get_color(labels[i]),
-                "snapshot_url": snapshots[i],
-                "timestamp": timestamps[i]
-            })
+            # Using metric='cosine' directly tells t-SNE to respect angular distances
+            # Perplexity: 30 is default, but for small datasets (5-50 points) it should be smaller
+            n_samples = data_matrix.shape[0]
+            perplexity = min(30, n_samples - 1)
 
+            tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=1000, metric='cosine', init='pca', learning_rate='auto', random_state=42)
+            projected = tsne.fit_transform(data_matrix)
+
+            # Generate colors
+            def get_color(label):
+                if label == "unknown": return "#888888"
+                hash_val = sum(ord(c) for c in label)
+                hue = (hash_val * 137) % 360
+                return f"hsl({hue}, 70%, 50%)"
+
+            result = []
+            for i in range(len(ids)):
+                result.append({
+                    "id": ids[i],
+                    "x": float(projected[i, 0]),
+                    "y": float(projected[i, 1]),
+                    "label": labels[i],
+                    "color": get_color(labels[i]),
+                    "snapshot_url": snapshots[i],
+                    "timestamp": timestamps[i]
+                })
+            return result
+
+        # Run CPU-heavy task in threadpool
+        result = await run_in_threadpool(_compute_tsne)
         return result
+
     except Exception as e:
-        logger.error(f"Error computing scatter data: {e}")
+        logger.error(f"Error computing t-SNE data: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
