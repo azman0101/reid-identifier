@@ -33,7 +33,7 @@
         <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3">
             <div class="relative group cursor-pointer" onclick="openZoomModal('{{ item.img_src }}')">
                 <img src="{{ item.img_src }}" class="w-full h-48 object-cover rounded mb-3" loading="lazy"
-                    onerror="this.onerror=null;this.src='https://via.placeholder.com/300x400?text=Not+Found';">
+                    onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'300\' height=\'400\'><rect width=\'300\' height=\'400\' fill=\'%23374151\'/><text x=\'50%\' y=\'50%\' dominant-baseline=\'middle\' text-anchor=\'middle\' fill=\'%239CA3AF\' font-family=\'sans-serif\' font-size=\'16\'>Introuvable</text></svg>';">
                 {% if not item.is_local %}
                 <div class="absolute top-2 right-2 bg-blue-600/80 text-white text-xs px-2 py-1 rounded-full shadow backdrop-blur-sm z-10"
                     title="Fetched from Frigate">☁️</div>

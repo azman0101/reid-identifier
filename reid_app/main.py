@@ -302,6 +302,8 @@ async def home(request: Request):
                         "event_id": f.split(".")[0],
                         "camera": "Unknown",
                         "timestamp": "Unknown",
+                        "is_local": True,
+                        "img_src": f"/unknown_imgs/{f}",
                     }
                 )
 
@@ -849,17 +851,32 @@ async def frigate_label(
         # (Optional) Update local tracking DB
         # db_repo.add_event(...) IF we want it tracked as a known event in our GUI.
         from datetime import datetime
+        from .mqtt_frigate import compute_dhash
 
-        db_repo.add_event(
-            event_id=event_id,
-            camera=camera,
-            timestamp=datetime.fromtimestamp(
-                data.get("start_time", datetime.now().timestamp())
-            ),
-            label=clean_label,
-            snapshot_path="",
-            image_hash=None,
-        )
+        existing_event = db_repo.get_event(event_id)
+        if existing_event:
+            db_repo.update_label(event_id, clean_label, source="manual")
+            # If it didn't have a vector, update it too
+            if not existing_event.get("vector"):
+                embedding = reid_core.get_embedding(image_frame)
+                if embedding is not None:
+                    db_repo.update_vector(event_id, embedding.tobytes())
+        else:
+            image_hash = compute_dhash(image_frame)
+            embedding = reid_core.get_embedding(image_frame)
+            vector_bytes = embedding.tobytes() if embedding is not None else None
+
+            db_repo.add_event(
+                event_id=event_id,
+                camera=camera,
+                timestamp=datetime.fromtimestamp(
+                    data.get("start_time", datetime.now().timestamp())
+                ),
+                label=clean_label,
+                snapshot_path="",
+                image_hash=image_hash,
+                vector=vector_bytes,
+            )
 
         return JSONResponse({"status": "success", "new_filename": new_filename})
 
