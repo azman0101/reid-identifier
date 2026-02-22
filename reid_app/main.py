@@ -586,7 +586,10 @@ async def get_umap_data():
 
 @app.post("/label")
 async def label_image(
-    filename: str = Form(...), new_label: str = Form(...), source: str = Form(...)
+    filename: str = Form(...),
+    new_label: str = Form(...),
+    source: str = Form(...),
+    update_type: str = Form("identity"),
 ):
     """Moves an image from 'unknown' to 'gallery' or renames in 'gallery'."""
     try:
@@ -639,7 +642,7 @@ async def label_image(
                 event_id = parts[-1]
 
                 # If renaming entire identity (e.g. Voisin -> Martine)
-                if old_label != clean_label:
+                if old_label != clean_label and update_type == "identity":
                     # Update DB for ALL events with old_label
                     db_repo.rename_identity(old_label, clean_label, source="manual")
 
@@ -663,6 +666,18 @@ async def label_image(
 
                     if "new_filename" not in locals():
                         new_filename = f"{clean_label}_{base_name}{ext}"  # Fallback
+                elif old_label != clean_label and update_type == "image":
+                    # Update DB for THIS event only
+                    db_repo.update_label(event_id, clean_label, source="manual")
+
+                    # Rename only this file on disk
+                    f_base = os.path.splitext(filename)[0]
+                    f_ext = os.path.splitext(filename)[1]
+                    f_suffix = f_base.split("_", 1)[1]
+
+                    new_filename = f"{clean_label}_{f_suffix}{f_ext}"
+                    dest_path = os.path.join(settings.gallery_dir, new_filename)
+                    shutil.move(src_path, dest_path)
                 else:
                     # Same label, nothing to do?
                     new_filename = filename
