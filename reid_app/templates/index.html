@@ -10,9 +10,17 @@
 <body class="bg-gray-900 text-white p-8">
     <div class="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
         <h1 class="text-4xl font-bold text-blue-400">Classification des Silhouettes</h1>
-        <a href="/db_viewer"
-            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 shadow transition font-semibold text-sm">🗄️
-            Voir Base de Données</a>
+        <div class="flex gap-4">
+            <a href="/visualization"
+                class="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded border border-purple-500 shadow transition font-semibold text-sm">📊
+                t-SNE</a>
+            <a href="/visualization_umap"
+                class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded border border-indigo-500 shadow transition font-semibold text-sm">📊
+                UMAP</a>
+            <a href="/db_viewer"
+                class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 shadow transition font-semibold text-sm">🗄️
+                Voir Base de Données</a>
+        </div>
     </div>
 
     <!-- Unknowns -->
@@ -21,10 +29,11 @@
         {% for item in unknowns %}
         <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3">
             <div class="relative group cursor-pointer" onclick="openZoomModal('{{ item.img_src }}')">
-                <img src="{{ item.img_src }}" class="w-full h-48 object-cover rounded mb-3"
-                    loading="lazy" onerror="this.onerror=null;this.src='https://via.placeholder.com/300x400?text=Not+Found';">
+                <img src="{{ item.img_src }}" class="w-full h-48 object-cover rounded mb-3" loading="lazy"
+                    onerror="this.onerror=null;this.src='https://via.placeholder.com/300x400?text=Not+Found';">
                 {% if not item.is_local %}
-                <div class="absolute top-2 right-2 bg-blue-600/80 text-white text-xs px-2 py-1 rounded-full shadow backdrop-blur-sm z-10" title="Fetched from Frigate">☁️</div>
+                <div class="absolute top-2 right-2 bg-blue-600/80 text-white text-xs px-2 py-1 rounded-full shadow backdrop-blur-sm z-10"
+                    title="Fetched from Frigate">☁️</div>
                 {% endif %}
                 <div
                     class="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center rounded mb-3">
@@ -35,10 +44,22 @@
                 <p>📸 {{ item.camera }}</p>
                 <p>🕒 {{ item.timestamp }}</p>
             </div>
-            <form onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2">
+            <form id="form_{{ item.event_id }}" onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2">
                 <input type="hidden" name="filename" value="{{ item.filename }}">
                 <input type="hidden" name="source" value="unknown">
-                <input type="text" name="new_label" placeholder="Nom (ex: Maël)" required
+
+                {% if item.suggestion %}
+                <button type="button"
+                    onclick="useSuggestion('{{ item.event_id }}', '{{ item.suggestion }}', 'form_{{ item.event_id }}')"
+                    class="bg-green-600 hover:bg-green-500 w-full py-1 rounded text-sm font-semibold transition flex justify-between px-2 items-center"
+                    title="Score: {{ item.suggestion_score }}%">
+                    <span>💡 {{ item.suggestion }}</span>
+                    <span class="text-xs opacity-80">{{ item.suggestion_score }}%</span>
+                </button>
+                {% endif %}
+
+                <input type="text" id="new_label_{{ item.event_id }}" name="new_label" placeholder="Nom (ex: Maël)"
+                    required
                     class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 outline-none w-full">
                 <div class="flex gap-2">
                     <button type="submit"
@@ -73,11 +94,16 @@
             <div class="text-xs text-gray-400 mb-2 text-center">
                 <p>{{ item.timestamp }}</p>
             </div>
-            <form onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2">
+            <form id="form_{{ item.filename }}" onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2">
                 <input type="hidden" name="filename" value="{{ item.filename }}">
                 <input type="hidden" name="source" value="gallery">
                 <input type="text" name="new_label" placeholder="Corriger..." required
                     class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-yellow-500 outline-none w-full">
+                <select name="update_type"
+                    class="bg-gray-700 text-white text-xs rounded px-2 py-1 outline-none w-full border border-gray-600">
+                    <option value="image">Cette image seule</option>
+                    <option value="identity">Toute l'identité</option>
+                </select>
                 <div class="flex gap-2">
                     <button type="submit"
                         class="bg-yellow-600 hover:bg-yellow-500 w-full py-1 rounded text-sm font-bold transition">Modifier</button>
@@ -127,6 +153,16 @@
                 alert("Erreur réseau");
                 btn.disabled = false;
                 btn.innerText = originalText;
+            }
+        }
+
+        function useSuggestion(eventId, suggestionText, formId) {
+            const input = document.getElementById('new_label_' + eventId);
+            if (input) {
+                input.value = suggestionText;
+                const form = document.getElementById(formId);
+                const btn = form.querySelector('button[type="submit"]');
+                btn.click();
             }
         }
 
@@ -184,7 +220,9 @@
         });
     </script>
     <footer class="mt-12 pt-4 border-t border-gray-700 text-center text-xs text-gray-500">
-        <p>Frigate ReID | Build: {{ version.build_date }} | Commit: <a href="https://github.com/azman0101/reid-identifier/commit/{{ version.git_sha }}" class="text-blue-400 hover:underline" target="_blank">{{ version.git_sha[:7] }}</a></p>
+        <p>Frigate ReID | Build: {{ version.build_date }} | Commit: <a
+                href="https://github.com/azman0101/reid-identifier/commit/{{ version.git_sha }}"
+                class="text-blue-400 hover:underline" target="_blank">{{ version.git_sha[:7] }}</a></p>
     </footer>
 </body>
 

@@ -50,7 +50,7 @@ class ReIDCore:
 
     def get_embedding(self, image_frame):
         """
-        Takes an image frame (BGR), resizes it to 128x256, and returns the embedding vector.
+        Takes an image frame (BGR), resizes it to 128x256 and returns the embedding vector.
         Thread-safe inference call (OpenVINO compiled_model is reentrant).
         """
         if image_frame is None or image_frame.size == 0:

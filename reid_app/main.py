@@ -3,6 +3,8 @@ import shutil
 import json
 import logging
 import sys
+import threading
+from datetime import datetime
 from .utils import crop_image_from_box
 import cv2
 import numpy as np
@@ -13,6 +15,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
+from sklearn.manifold import TSNE
+from sklearn.preprocessing import normalize
+import umap
 
 from .config import settings
 from .reid_engine import ReIDCore
@@ -28,6 +33,62 @@ logger = logging.getLogger(__name__)
 reid_core = None
 mqtt_worker = None
 db_repo = None
+
+
+def run_backfill(core, repo):
+    """Backfill vectors for events that are missing them."""
+    logger.info("Starting vector backfill process in background...")
+    try:
+        events = repo.get_all_events()
+        count = 0
+        total = 0
+
+        # Pre-scan gallery to make lookups faster
+        gallery_map = {}  # event_id -> filename
+        if os.path.exists(settings.gallery_dir):
+            for f in os.listdir(settings.gallery_dir):
+                if f.lower().endswith((".jpg", ".jpeg", ".png")):
+                    # format: Label_ID.jpg
+                    parts = f.rsplit(".", 1)[0].split("_")
+                    if len(parts) >= 2:
+                        evt_id = parts[-1]
+                        gallery_map[evt_id] = f
+
+        for event in events:
+            # Check if vector is missing (None or empty bytes)
+            if event.get("vector"):
+                continue
+
+            total += 1
+            event_id = event["id"]
+            img_path = None
+
+            # Check unknown dir
+            unknown_path = os.path.join(settings.unknown_dir, f"{event_id}.jpg")
+            if os.path.exists(unknown_path):
+                img_path = unknown_path
+
+            # Check gallery
+            elif event_id in gallery_map:
+                img_path = os.path.join(settings.gallery_dir, gallery_map[event_id])
+
+            if img_path:
+                img = cv2.imread(img_path)
+                if img is not None:
+                    embedding = core.get_embedding(img)
+                    if embedding is not None:
+                        repo.update_vector(event_id, embedding.tobytes())
+                        count += 1
+
+        if count > 0:
+            logger.info(
+                f"Backfill complete: Updated {count} vectors out of {total} missing."
+            )
+        else:
+            logger.info("Backfill complete: No vectors needed update.")
+
+    except Exception as e:
+        logger.error(f"Backfill process failed: {e}")
 
 
 @asynccontextmanager
@@ -60,6 +121,12 @@ async def lifespan(app: FastAPI):
     if reid_core:
         mqtt_worker = start_mqtt(reid_core, db_repo)
 
+    # Start Backfill
+    if reid_core and db_repo:
+        threading.Thread(
+            target=run_backfill, args=(reid_core, db_repo), daemon=True
+        ).start()
+
     yield
 
     # Shutdown
@@ -72,16 +139,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 # Load Version Info
-version_info = {'build_date': 'Unknown', 'git_sha': 'Unknown'}
+version_info = {"build_date": "Unknown", "git_sha": "Unknown"}
 try:
-    if os.path.exists('reid_app/version.json'):
-        with open('reid_app/version.json', 'r') as f:
+    if os.path.exists("reid_app/version.json"):
+        with open("reid_app/version.json", "r") as f:
             version_info = json.load(f)
-    elif os.path.exists('/app/reid_app/version.json'):
-        with open('/app/reid_app/version.json', 'r') as f:
+    elif os.path.exists("/app/reid_app/version.json"):
+        with open("/app/reid_app/version.json", "r") as f:
             version_info = json.load(f)
 except Exception as e:
-    logging.warning(f'Could not load version info: {e}')
+    logging.warning(f"Could not load version info: {e}")
 templates = Jinja2Templates(directory="reid_app/templates")
 
 # Mount static files
@@ -95,17 +162,26 @@ async def fetch_snapshot(event_id: str):
     """Fetches a snapshot from local disk or Frigate API."""
     try:
         filename = f"{event_id}.jpg"
-        local_path = os.path.join(settings.unknown_dir, filename)
+        unknown_path = os.path.join(settings.unknown_dir, filename)
 
-        # 1. Check local
-        if os.path.exists(local_path):
-            logger.debug(f"Snapshot {filename} already exists locally. Serving from disk.")
-            return FileResponse(local_path)
+        # 1. Check local unknown dir
+        if os.path.exists(unknown_path):
+            return FileResponse(unknown_path)
 
-        # 2. Fetch from Frigate
+        # 2. Check local gallery dir
+        # We need to find matching file: Label_EventID.jpg
+        # Only scan if not in unknown
+        if os.path.exists(settings.gallery_dir):
+            for f in os.listdir(settings.gallery_dir):
+                if f.endswith(f"_{event_id}.jpg") or f == filename:
+                    return FileResponse(os.path.join(settings.gallery_dir, f))
+
+        # 3. Fetch from Frigate
         # First get event details for bounding box
         event_url = f"{settings.frigate_url}/api/events/{event_id}"
-        snapshot_url = f"{settings.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
+        snapshot_url = (
+            f"{settings.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
+        )
 
         def _download_and_crop():
             try:
@@ -114,23 +190,15 @@ async def fetch_snapshot(event_id: str):
                 data_box = None
                 try:
                     ev_resp = requests.get(event_url, timeout=5)
-                    logger.debug(f"Fetch event {event_id}: HTTP {ev_resp.status_code}")
                     if ev_resp.status_code == 200:
                         data = ev_resp.json()
-                        # Debug: log keys in data
-                        logger.debug(f"Event data keys: {list(data.keys())}")
-                        if "data" in data:
-                            logger.debug(f"Event data[data] keys: {list(data.get('data', {}).keys())}")
-                        # Frigate 0.14+ often puts box in data.box (normalized)
                         data_box = data.get("data", {}).get("box")
-                        # Fallback/Older versions might have box at root
                         if not data_box:
                             box = data.get("box")
                 except Exception as e:
                     logger.warning(f"Could not fetch event details for {event_id}: {e}")
 
                 # Get Image
-                logger.debug(f"Downloading snapshot from {snapshot_url}")
                 resp = requests.get(snapshot_url, timeout=10)
                 if resp.status_code != 200:
                     return False
@@ -138,17 +206,13 @@ async def fetch_snapshot(event_id: str):
                 # Decode Image
                 image_array = np.asarray(bytearray(resp.content), dtype="uint8")
                 image_frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
-                if image_frame is not None:
-                    logger.debug("Image decoded successfully. Calling crop_image_from_box...")
-                else:
-                    logger.error("Failed to decode image from bytes!")
                 if image_frame is None:
                     return False
 
                 # Crop Logic (using utility)
                 image_frame = crop_image_from_box(image_frame, box, data_box)
-                # Save
-                cv2.imwrite(local_path, image_frame)
+                # Save to unknown dir
+                cv2.imwrite(unknown_path, image_frame)
                 return True
             except Exception as e:
                 logger.error(f"Error processing snapshot download: {e}")
@@ -156,12 +220,15 @@ async def fetch_snapshot(event_id: str):
 
         success = await run_in_threadpool(_download_and_crop)
         if success:
-            return FileResponse(local_path)
+            return FileResponse(unknown_path)
         else:
-            return JSONResponse({"status": "error", "message": "Snapshot not found"}, status_code=404)
+            return JSONResponse(
+                {"status": "error", "message": "Snapshot not found"}, status_code=404
+            )
     except Exception as e:
         logger.error(f"Error fetching snapshot {event_id}: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -186,9 +253,27 @@ async def home(request: Request):
             is_local = os.path.exists(full_path)
 
             if is_local:
-                 img_src = f"/unknown_imgs/{filename}"
+                img_src = f"/unknown_imgs/{filename}"
             else:
-                 img_src = f"/snapshot/{event['id']}"
+                img_src = f"/snapshot/{event['id']}"
+
+            suggestion = None
+            suggestion_score = 0.0
+
+            if event.get("vector") and reid_core:
+                vec = np.frombuffer(event["vector"], dtype=np.float32)
+                if vec.shape == (256,):
+                    match, score = reid_core.find_match(vec, threshold=0.5)
+                    if match:
+                        suggestion = match
+                        suggestion_score = round(score * 100, 1)
+                    else:
+                        # Even if no match passes threshold, we might want the closest one if > 0
+                        # But find_match returns None if below threshold. Let's try with 0.4
+                        match, score = reid_core.find_match(vec, threshold=0.4)
+                        if match:
+                            suggestion = match
+                            suggestion_score = round(score * 100, 1)
 
             unknowns_data.append(
                 {
@@ -197,7 +282,9 @@ async def home(request: Request):
                     "camera": event["camera"],
                     "timestamp": event["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),
                     "is_local": is_local,
-                    "img_src": img_src
+                    "img_src": img_src,
+                    "suggestion": suggestion,
+                    "suggestion_score": suggestion_score,
                 }
             )
         # Also catch files on disk that might not be in DB (orphaned)
@@ -267,7 +354,12 @@ async def home(request: Request):
 
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "version": version_info, "unknowns": unknowns_data, "gallery": gallery_data},
+        {
+            "request": request,
+            "version": version_info,
+            "unknowns": unknowns_data,
+            "gallery": gallery_data,
+        },
     )
 
 
@@ -284,7 +376,8 @@ async def db_viewer(request: Request):
     return templates.TemplateResponse(
         "db_viewer.html",
         {
-            "request": request, "version": version_info,
+            "request": request,
+            "version": version_info,
             "events": events,
             "history": history,
             "external_url": settings.external_url.rstrip("/"),
@@ -292,9 +385,211 @@ async def db_viewer(request: Request):
     )
 
 
+@app.get("/visualization", response_class=HTMLResponse)
+async def visualization(request: Request):
+    return templates.TemplateResponse(
+        "visualization.html", {"request": request, "version": version_info}
+    )
+
+
+@app.get("/visualization_umap", response_class=HTMLResponse)
+async def visualization_umap(request: Request):
+    return templates.TemplateResponse(
+        "visualization_umap.html", {"request": request, "version": version_info}
+    )
+
+
+@app.get("/api/scatter")
+async def get_scatter_data():
+    """Returns 2D t-SNE projection of vectors."""
+    try:
+
+        def _compute_tsne():
+            events = db_repo.get_all_vectors()
+            if len(events) < 5:  # t-SNE needs more points than PCA
+                return []
+
+            # Limit to most recent 2000 points for performance
+            events = sorted(
+                events,
+                key=lambda x: x["timestamp"] if x["timestamp"] else datetime.min,
+                reverse=True,
+            )[:2000]
+
+            ids = []
+            labels = []
+            vectors = []
+            snapshots = []
+            timestamps = []
+
+            for e in events:
+                if not e.get("vector"):
+                    continue
+                vec = np.frombuffer(e["vector"], dtype=np.float32)
+                if vec.shape != (256,):
+                    continue
+
+                ids.append(e["id"])
+                labels.append(e["current_label"])
+                vectors.append(vec)
+
+                snapshots.append(f"/snapshot/{e['id']}")
+                timestamps.append(
+                    e["timestamp"].strftime("%Y-%m-%d %H:%M") if e["timestamp"] else ""
+                )
+
+            if len(vectors) < 5:
+                return []
+
+            # Normalize and t-SNE
+            data_matrix = np.array(vectors, dtype=np.float32)
+            # Normalize to unit length (L2) - crucial for Cosine Similarity approximation
+            data_matrix = normalize(data_matrix, norm="l2")
+
+            # Using metric='cosine' directly tells t-SNE to respect angular distances
+            # Perplexity: 30 is default, but for small datasets (5-50 points) it should be smaller
+            n_samples = data_matrix.shape[0]
+            perplexity = min(30, n_samples - 1)
+
+            tsne = TSNE(
+                n_components=2,
+                perplexity=perplexity,
+                max_iter=1000,
+                metric="cosine",
+                init="pca",
+                learning_rate="auto",
+                random_state=42,
+            )
+            projected = tsne.fit_transform(data_matrix)
+
+            # Generate colors
+            def get_color(label):
+                if label == "unknown":
+                    return "#888888"
+                hash_val = sum(ord(c) for c in label)
+                hue = (hash_val * 137) % 360
+                return f"hsl({hue}, 70%, 50%)"
+
+            result = []
+            for i in range(len(ids)):
+                result.append(
+                    {
+                        "id": ids[i],
+                        "x": float(projected[i, 0]),
+                        "y": float(projected[i, 1]),
+                        "label": labels[i],
+                        "color": get_color(labels[i]),
+                        "snapshot_url": snapshots[i],
+                        "timestamp": timestamps[i],
+                    }
+                )
+            return result
+
+        # Run CPU-heavy task in threadpool
+        result = await run_in_threadpool(_compute_tsne)
+        return result
+
+    except Exception as e:
+        logger.error(f"Error computing t-SNE data: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/umap")
+async def get_umap_data():
+    """Returns 2D UMAP projection of vectors."""
+    try:
+
+        def _compute_umap():
+            events = db_repo.get_all_vectors()
+            if len(events) < 5:  # UMAP needs some points
+                return []
+
+            # Limit to most recent 2000 points for performance
+            events = sorted(
+                events,
+                key=lambda x: x["timestamp"] if x["timestamp"] else datetime.min,
+                reverse=True,
+            )[:2000]
+
+            ids = []
+            labels = []
+            vectors = []
+            snapshots = []
+            timestamps = []
+
+            for e in events:
+                if not e.get("vector"):
+                    continue
+                vec = np.frombuffer(e["vector"], dtype=np.float32)
+                if vec.shape != (256,):
+                    continue
+
+                ids.append(e["id"])
+                labels.append(e["current_label"])
+                vectors.append(vec)
+
+                snapshots.append(f"/snapshot/{e['id']}")
+                timestamps.append(
+                    e["timestamp"].strftime("%Y-%m-%d %H:%M") if e["timestamp"] else ""
+                )
+
+            if len(vectors) < 5:
+                return []
+
+            # Normalize and UMAP
+            data_matrix = np.array(vectors, dtype=np.float32)
+            # Normalize to unit length (L2) - crucial for Cosine Similarity approximation
+            data_matrix = normalize(data_matrix, norm="l2")
+
+            n_samples = data_matrix.shape[0]
+            n_neighbors = min(15, n_samples - 1)
+
+            reducer = umap.UMAP(
+                n_neighbors=n_neighbors,
+                n_components=2,
+                metric="cosine",
+                random_state=42,
+            )
+            projected = reducer.fit_transform(data_matrix)
+
+            # Generate colors
+            def get_color(label):
+                if label == "unknown":
+                    return "#888888"
+                hash_val = sum(ord(c) for c in label)
+                hue = (hash_val * 137) % 360
+                return f"hsl({hue}, 70%, 50%)"
+
+            result = []
+            for i in range(len(ids)):
+                result.append(
+                    {
+                        "id": ids[i],
+                        "x": float(projected[i, 0]),
+                        "y": float(projected[i, 1]),
+                        "label": labels[i],
+                        "color": get_color(labels[i]),
+                        "snapshot_url": snapshots[i],
+                        "timestamp": timestamps[i],
+                    }
+                )
+            return result
+
+        # Run CPU-heavy task in threadpool
+        result = await run_in_threadpool(_compute_umap)
+        return result
+
+    except Exception as e:
+        logger.error(f"Error computing UMAP data: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.post("/label")
 async def label_image(
-    filename: str = Form(...), new_label: str = Form(...), source: str = Form(...)
+    filename: str = Form(...),
+    new_label: str = Form(...),
+    source: str = Form(...),
+    update_type: str = Form("identity"),
 ):
     """Moves an image from 'unknown' to 'gallery' or renames in 'gallery'."""
     try:
@@ -347,7 +642,7 @@ async def label_image(
                 event_id = parts[-1]
 
                 # If renaming entire identity (e.g. Voisin -> Martine)
-                if old_label != clean_label:
+                if old_label != clean_label and update_type == "identity":
                     # Update DB for ALL events with old_label
                     db_repo.rename_identity(old_label, clean_label, source="manual")
 
@@ -371,6 +666,18 @@ async def label_image(
 
                     if "new_filename" not in locals():
                         new_filename = f"{clean_label}_{base_name}{ext}"  # Fallback
+                elif old_label != clean_label and update_type == "image":
+                    # Update DB for THIS event only
+                    db_repo.update_label(event_id, clean_label, source="manual")
+
+                    # Rename only this file on disk
+                    f_base = os.path.splitext(filename)[0]
+                    f_ext = os.path.splitext(filename)[1]
+                    f_suffix = f_base.split("_", 1)[1]
+
+                    new_filename = f"{clean_label}_{f_suffix}{f_ext}"
+                    dest_path = os.path.join(settings.gallery_dir, new_filename)
+                    shutil.move(src_path, dest_path)
                 else:
                     # Same label, nothing to do?
                     new_filename = filename
