@@ -1,10 +1,15 @@
 import os
 import shutil
+import json
 import logging
 import sys
+from .utils import crop_image_from_box
+import cv2
+import numpy as np
+import requests
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
@@ -16,7 +21,7 @@ from .mqtt_frigate import start_mqtt
 from .database.sqlite_repo import SQLiteRepository
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger(__name__)
 
 # Global instances
@@ -65,6 +70,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+# Load Version Info
+version_info = {'build_date': 'Unknown', 'git_sha': 'Unknown'}
+try:
+    if os.path.exists('reid_app/version.json'):
+        with open('reid_app/version.json', 'r') as f:
+            version_info = json.load(f)
+    elif os.path.exists('/app/reid_app/version.json'):
+        with open('/app/reid_app/version.json', 'r') as f:
+            version_info = json.load(f)
+except Exception as e:
+    logging.warning(f'Could not load version info: {e}')
 templates = Jinja2Templates(directory="reid_app/templates")
 
 # Mount static files
@@ -72,6 +89,79 @@ app.mount("/static", StaticFiles(directory="reid_app/static"), name="static")
 app.mount("/gallery_imgs", StaticFiles(directory=settings.gallery_dir), name="gallery")
 app.mount("/unknown_imgs", StaticFiles(directory=settings.unknown_dir), name="unknown")
 
+
+@app.get("/snapshot/{event_id}")
+async def fetch_snapshot(event_id: str):
+    """Fetches a snapshot from local disk or Frigate API."""
+    try:
+        filename = f"{event_id}.jpg"
+        local_path = os.path.join(settings.unknown_dir, filename)
+
+        # 1. Check local
+        if os.path.exists(local_path):
+            logger.debug(f"Snapshot {filename} already exists locally. Serving from disk.")
+            return FileResponse(local_path)
+
+        # 2. Fetch from Frigate
+        # First get event details for bounding box
+        event_url = f"{settings.frigate_url}/api/events/{event_id}"
+        snapshot_url = f"{settings.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
+
+        def _download_and_crop():
+            try:
+                # Get Event Data for Box
+                box = None
+                data_box = None
+                try:
+                    ev_resp = requests.get(event_url, timeout=5)
+                    logger.debug(f"Fetch event {event_id}: HTTP {ev_resp.status_code}")
+                    if ev_resp.status_code == 200:
+                        data = ev_resp.json()
+                        # Debug: log keys in data
+                        logger.debug(f"Event data keys: {list(data.keys())}")
+                        if "data" in data:
+                            logger.debug(f"Event data[data] keys: {list(data.get('data', {}).keys())}")
+                        # Frigate 0.14+ often puts box in data.box (normalized)
+                        data_box = data.get("data", {}).get("box")
+                        # Fallback/Older versions might have box at root
+                        if not data_box:
+                            box = data.get("box")
+                except Exception as e:
+                    logger.warning(f"Could not fetch event details for {event_id}: {e}")
+
+                # Get Image
+                logger.debug(f"Downloading snapshot from {snapshot_url}")
+                resp = requests.get(snapshot_url, timeout=10)
+                if resp.status_code != 200:
+                    return False
+
+                # Decode Image
+                image_array = np.asarray(bytearray(resp.content), dtype="uint8")
+                image_frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+                if image_frame is not None:
+                    logger.debug("Image decoded successfully. Calling crop_image_from_box...")
+                else:
+                    logger.error("Failed to decode image from bytes!")
+                if image_frame is None:
+                    return False
+
+                # Crop Logic (using utility)
+                image_frame = crop_image_from_box(image_frame, box, data_box)
+                # Save
+                cv2.imwrite(local_path, image_frame)
+                return True
+            except Exception as e:
+                logger.error(f"Error processing snapshot download: {e}")
+                return False
+
+        success = await run_in_threadpool(_download_and_crop)
+        if success:
+            return FileResponse(local_path)
+        else:
+            return JSONResponse({"status": "error", "message": "Snapshot not found"}, status_code=404)
+    except Exception as e:
+        logger.error(f"Error fetching snapshot {event_id}: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -89,17 +179,27 @@ async def home(request: Request):
         unknowns_data = []
         for event in unknown_events:
             filename = event["snapshot_path"]
-            full_path = os.path.join(settings.unknown_dir, filename)
-            if filename and os.path.exists(full_path):
-                unknowns_data.append(
-                    {
-                        "filename": filename,
-                        "event_id": event["id"],
-                        "camera": event["camera"],
-                        "timestamp": event["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),
-                    }
-                )
+            if not filename:
+                filename = f"{event['id']}.jpg"
 
+            full_path = os.path.join(settings.unknown_dir, filename)
+            is_local = os.path.exists(full_path)
+
+            if is_local:
+                 img_src = f"/unknown_imgs/{filename}"
+            else:
+                 img_src = f"/snapshot/{event['id']}"
+
+            unknowns_data.append(
+                {
+                    "filename": filename,
+                    "event_id": event["id"],
+                    "camera": event["camera"],
+                    "timestamp": event["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),
+                    "is_local": is_local,
+                    "img_src": img_src
+                }
+            )
         # Also catch files on disk that might not be in DB (orphaned)
         disk_files = set(
             f
@@ -167,7 +267,7 @@ async def home(request: Request):
 
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "unknowns": unknowns_data, "gallery": gallery_data},
+        {"request": request, "version": version_info, "unknowns": unknowns_data, "gallery": gallery_data},
     )
 
 
@@ -184,7 +284,7 @@ async def db_viewer(request: Request):
     return templates.TemplateResponse(
         "db_viewer.html",
         {
-            "request": request,
+            "request": request, "version": version_info,
             "events": events,
             "history": history,
             "external_url": settings.external_url.rstrip("/"),

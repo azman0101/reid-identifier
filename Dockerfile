@@ -12,13 +12,8 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Install dependencies
-# 1. Copy only pyproject.toml to cache dependency installation
 COPY pyproject.toml .
-
-# 2. Compile requirements.txt from pyproject.toml
 RUN uv pip compile pyproject.toml -o requirements.txt
-
-# 3. Install dependencies from requirements.txt
 RUN uv pip install -r requirements.txt
 
 # Final stage
@@ -41,35 +36,40 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 ARG TAILWIND_VERSION=v4.2.0
 ENV TAILWIND_VERSION=${TAILWIND_VERSION}
+
 # Copy application code
-# We copy everything in '.' (root of build context) to '/app'.
-# This includes 'reid_app' package directory, 'pyproject.toml', etc.
 COPY . /app
 
-# Build static CSS with standalone Tailwind CLI (architecture aware)
-# https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.0/tailwindcss-linux-arm64
-# https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.0/tailwindcss-linux-arm64-musl
-# https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.0/tailwindcss-linux-x64
-# https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.0/tailwindcss-linux-x64-musl
-# https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.0/tailwindcss-macos-arm64
-# https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.0/tailwindcss-macos-x64
+# Build static CSS
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
         TAILWIND_BIN="tailwindcss-linux-arm64"; \
     elif [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "amd64" ]; then \
         TAILWIND_BIN="tailwindcss-linux-x64"; \
     else \
-        echo "Unsupported architecture: $ARCH" && exit 1; \
+        echo "Unsupported architecture: $ARCH"; \
     fi && \
-    curl -f -sLO "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/$TAILWIND_BIN" && \
-    chmod +x "$TAILWIND_BIN" && \
-    ./"$TAILWIND_BIN" -i reid_app/static/input.css -o reid_app/static/output.css --minify && \
-    rm "$TAILWIND_BIN"
+    if [ -n "$TAILWIND_BIN" ]; then \
+      curl -f -sLO "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/$TAILWIND_BIN" && \
+      chmod +x "$TAILWIND_BIN" && \
+      ./"$TAILWIND_BIN" -i reid_app/static/input.css -o reid_app/static/output.css --minify && \
+      rm "$TAILWIND_BIN"; \
+    fi
 
-# Set PYTHONPATH so python can find 'reid_app' package in /app
+# --- Add Version Metadata ---
+ARG BUILD_DATE
+ARG GIT_SHA
+
+LABEL org.opencontainers.image.created=$BUILD_DATE
+LABEL org.opencontainers.image.revision=$GIT_SHA
+
+# Inject build info into the app
+RUN echo "{\"build_date\": \"$BUILD_DATE\", \"git_sha\": \"$GIT_SHA\"}" > /app/reid_app/version.json
+
+# Set PYTHONPATH
 ENV PYTHONPATH=/app
 
-# Create necessary directories for models (if not mounted)
+# Create necessary directories
 RUN mkdir -p /models/gallery /models/unknown
 
 # Expose port
