@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     external_url: str = "http://localhost:5000"
     model_path: str = "/models/person-reidentification-retail-0288.xml"
     gallery_dir: str = "/models/gallery"
+    log_level: str = "INFO"
     unknown_dir: str = "/models/unknown"
     device_name: str = "GPU"
 
