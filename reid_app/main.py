@@ -257,6 +257,24 @@ async def home(request: Request):
             else:
                 img_src = f"/snapshot/{event['id']}"
 
+            suggestion = None
+            suggestion_score = 0.0
+
+            if event.get("vector") and reid_core:
+                vec = np.frombuffer(event["vector"], dtype=np.float32)
+                if vec.shape == (256,):
+                    match, score = reid_core.find_match(vec, threshold=0.5)
+                    if match:
+                        suggestion = match
+                        suggestion_score = round(score * 100, 1)
+                    else:
+                        # Even if no match passes threshold, we might want the closest one if > 0
+                        # But find_match returns None if below threshold. Let's try with 0.4
+                        match, score = reid_core.find_match(vec, threshold=0.4)
+                        if match:
+                            suggestion = match
+                            suggestion_score = round(score * 100, 1)
+
             unknowns_data.append(
                 {
                     "filename": filename,
@@ -265,6 +283,8 @@ async def home(request: Request):
                     "timestamp": event["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),
                     "is_local": is_local,
                     "img_src": img_src,
+                    "suggestion": suggestion,
+                    "suggestion_score": suggestion_score,
                 }
             )
         # Also catch files on disk that might not be in DB (orphaned)

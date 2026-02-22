@@ -44,10 +44,22 @@
                 <p>📸 {{ item.camera }}</p>
                 <p>🕒 {{ item.timestamp }}</p>
             </div>
-            <form onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2">
+            <form id="form_{{ item.event_id }}" onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2">
                 <input type="hidden" name="filename" value="{{ item.filename }}">
                 <input type="hidden" name="source" value="unknown">
-                <input type="text" name="new_label" placeholder="Nom (ex: Maël)" required
+
+                {% if item.suggestion %}
+                <button type="button"
+                    onclick="useSuggestion('{{ item.event_id }}', '{{ item.suggestion }}', 'form_{{ item.event_id }}')"
+                    class="bg-green-600 hover:bg-green-500 w-full py-1 rounded text-sm font-semibold transition flex justify-between px-2 items-center"
+                    title="Score: {{ item.suggestion_score }}%">
+                    <span>💡 {{ item.suggestion }}</span>
+                    <span class="text-xs opacity-80">{{ item.suggestion_score }}%</span>
+                </button>
+                {% endif %}
+
+                <input type="text" id="new_label_{{ item.event_id }}" name="new_label" placeholder="Nom (ex: Maël)"
+                    required
                     class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 outline-none w-full">
                 <div class="flex gap-2">
                     <button type="submit"
@@ -136,6 +148,16 @@
                 alert("Erreur réseau");
                 btn.disabled = false;
                 btn.innerText = originalText;
+            }
+        }
+
+        function useSuggestion(eventId, suggestionText, formId) {
+            const input = document.getElementById('new_label_' + eventId);
+            if (input) {
+                input.value = suggestionText;
+                const form = document.getElementById(formId);
+                const btn = form.querySelector('button[type="submit"]');
+                btn.click();
             }
         }
 
