@@ -1,5 +1,6 @@
 import os
 import shutil
+import json
 import logging
 import sys
 from .utils import crop_image_from_box
@@ -69,6 +70,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+# Load Version Info
+version_info = {'build_date': 'Unknown', 'git_sha': 'Unknown'}
+try:
+    if os.path.exists('reid_app/version.json'):
+        with open('reid_app/version.json', 'r') as f:
+            version_info = json.load(f)
+    elif os.path.exists('/app/reid_app/version.json'):
+        with open('/app/reid_app/version.json', 'r') as f:
+            version_info = json.load(f)
+except Exception as e:
+    logging.warning(f'Could not load version info: {e}')
 templates = Jinja2Templates(directory="reid_app/templates")
 
 # Mount static files
@@ -254,7 +267,7 @@ async def home(request: Request):
 
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "unknowns": unknowns_data, "gallery": gallery_data},
+        {"request": request, "version": version_info, "unknowns": unknowns_data, "gallery": gallery_data},
     )
 
 
@@ -271,7 +284,7 @@ async def db_viewer(request: Request):
     return templates.TemplateResponse(
         "db_viewer.html",
         {
-            "request": request,
+            "request": request, "version": version_info,
             "events": events,
             "history": history,
             "external_url": settings.external_url.rstrip("/"),

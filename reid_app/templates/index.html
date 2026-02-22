@@ -183,6 +183,9 @@
             }
         });
     </script>
+    <footer class="mt-12 pt-4 border-t border-gray-700 text-center text-xs text-gray-500">
+        <p>Frigate ReID | Build: {{ version.build_date }} | Commit: <a href="https://github.com/azman0101/reid-identifier/commit/{{ version.git_sha }}" class="text-blue-400 hover:underline" target="_blank">{{ version.git_sha[:7] }}</a></p>
+    </footer>
 </body>
 
 </html>
