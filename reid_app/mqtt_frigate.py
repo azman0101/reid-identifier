@@ -149,8 +149,12 @@ class MQTTWorker:
                         desc_url = (
                             f"{self.frigate_url}/api/events/{event_id}/description"
                         )
+
+                        # Generate human-friendly timestamp
+                        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
                         desc_payload = {
-                            "description": f"Auto-labeled as '{match}' by ReID-Identifier (OpenVINO)"
+                            "description": f"Auto-labeled as '{match}' ({score * 100:.1f}%) at {current_time} by ReID-Identifier"
                         }
                         desc_resp = requests.post(
                             desc_url, json=desc_payload, headers=headers
@@ -194,7 +198,7 @@ class MQTTWorker:
                     label=label,
                     snapshot_path=snapshot_path_db,
                     image_hash=image_hash,
-                    vector=vector_bytes
+                    vector=vector_bytes,
                 )
 
                 # If adding to DB failed (likely duplicate), ensure we don't leave an orphaned file
@@ -203,9 +207,13 @@ class MQTTWorker:
                     if os.path.exists(orphaned_path):
                         try:
                             os.remove(orphaned_path)
-                            logger.info(f"🗑️ Removed duplicate/orphaned file: {orphaned_path}")
+                            logger.info(
+                                f"🗑️ Removed duplicate/orphaned file: {orphaned_path}"
+                            )
                         except OSError as e:
-                            logger.error(f"Failed to remove orphaned file {orphaned_path}: {e}")
+                            logger.error(
+                                f"Failed to remove orphaned file {orphaned_path}: {e}"
+                            )
 
                 if match:
                     pass
