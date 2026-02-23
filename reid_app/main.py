@@ -201,25 +201,44 @@ async def fetch_snapshot(event_id: str):
                 # Get Image
                 resp = requests.get(snapshot_url, timeout=10)
                 if resp.status_code != 200:
-                    return False
+                    return False, None
 
                 # Decode Image
                 image_array = np.asarray(bytearray(resp.content), dtype="uint8")
                 image_frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
                 if image_frame is None:
-                    return False
+                    return False, None
 
                 # Crop Logic (using utility)
                 image_frame = crop_image_from_box(image_frame, box, data_box)
-                # Save to unknown dir
-                cv2.imwrite(unknown_path, image_frame)
-                return True
+
+                # Check DB if this is an active unknown event
+                event = db_repo.get_event(event_id)
+                is_dashboard_unknown = False
+                if event and event.get("current_label") == "unknown":
+                    is_dashboard_unknown = True
+
+                if is_dashboard_unknown:
+                    # Save local for dashboard labeling
+                    cv2.imwrite(unknown_path, image_frame)
+                    return True, None
+                else:
+                    # Don't save locally (avoids orphan pollution during inspection)
+                    success, encoded_image = cv2.imencode(".jpg", image_frame)
+                    if success:
+                        return True, encoded_image.tobytes()
+                    return False, None
+
             except Exception as e:
                 logger.error(f"Error processing snapshot download: {e}")
-                return False
+                return False, None
 
-        success = await run_in_threadpool(_download_and_crop)
+        success, img_bytes = await run_in_threadpool(_download_and_crop)
         if success:
+            if img_bytes:
+                from fastapi import Response
+
+                return Response(content=img_bytes, media_type="image/jpeg")
             return FileResponse(unknown_path)
         else:
             return JSONResponse(
@@ -275,12 +294,22 @@ async def home(request: Request):
                             suggestion = match
                             suggestion_score = round(score * 100, 1)
 
+            frigate_timestamp = "-"
+            try:
+                ts_part = event["id"].split("-")[0]
+                frigate_timestamp = datetime.fromtimestamp(float(ts_part)).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+            except Exception:
+                pass
+
             unknowns_data.append(
                 {
                     "filename": filename,
                     "event_id": event["id"],
                     "camera": event["camera"],
                     "timestamp": event["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),
+                    "frigate_timestamp": frigate_timestamp,
                     "is_local": is_local,
                     "img_src": img_src,
                     "suggestion": suggestion,
@@ -296,12 +325,69 @@ async def home(request: Request):
         db_files = set(u["filename"] for u in unknowns_data)
         for f in disk_files:
             if f not in db_files:
+                # Handle true orphan missing from DB: fetch metadata & suggest label
+                event_id = f.rsplit(".", 1)[0]
+                camera = "Unknown"
+                timestamp = "Unknown"
+                suggestion = None
+                suggestion_score = 0.0
+
+                try:
+                    ev_resp = requests.get(
+                        f"{settings.frigate_url}/api/events/{event_id}", timeout=2
+                    )
+                    if ev_resp.status_code == 200:
+                        data = ev_resp.json()
+                        camera = data.get("camera", "Unknown")
+                        ts = data.get("start_time")
+                        if ts:
+                            timestamp = datetime.fromtimestamp(ts).strftime(
+                                "%Y-%m-%d %H:%M:%S"
+                            )
+                except Exception:
+                    pass
+
+                try:
+                    if reid_core:
+                        full_path = os.path.join(settings.unknown_dir, f)
+                        img = cv2.imread(full_path)
+                        if img is not None:
+                            vec = reid_core.get_embedding(img)
+                            if vec is not None:
+                                match, score = reid_core.find_match(vec, threshold=0.5)
+                                if match:
+                                    suggestion = match
+                                    suggestion_score = round(score * 100, 1)
+                                else:
+                                    match, score = reid_core.find_match(
+                                        vec, threshold=0.4
+                                    )
+                                    if match:
+                                        suggestion = match
+                                        suggestion_score = round(score * 100, 1)
+                except Exception as e:
+                    logger.warning(f"Failed suggestion for orphan {f}: {e}")
+
+                frigate_timestamp = "-"
+                try:
+                    ts_part = event_id.split("-")[0]
+                    frigate_timestamp = datetime.fromtimestamp(float(ts_part)).strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                except Exception:
+                    pass
+
                 unknowns_data.append(
                     {
                         "filename": f,
-                        "event_id": f.split(".")[0],
-                        "camera": "Unknown",
-                        "timestamp": "Unknown",
+                        "event_id": event_id,
+                        "camera": camera,
+                        "timestamp": timestamp,
+                        "frigate_timestamp": frigate_timestamp,
+                        "is_local": True,
+                        "img_src": f"/unknown_imgs/{f}",
+                        "suggestion": suggestion,
+                        "suggestion_score": suggestion_score,
                     }
                 )
 
@@ -323,6 +409,15 @@ async def home(request: Request):
             if len(parts) >= 2:
                 event_id = parts[-1]
                 event = db_repo.get_event(event_id)
+                frigate_timestamp = "-"
+                try:
+                    ts_part = event_id.split("-")[0]
+                    frigate_timestamp = datetime.fromtimestamp(float(ts_part)).strftime(
+                        "%Y-%m-%d %H:%M"
+                    )
+                except Exception:
+                    pass
+
                 if event:
                     gallery_data.append(
                         {
@@ -330,6 +425,7 @@ async def home(request: Request):
                             "label": event["current_label"],
                             "camera": event["camera"],
                             "timestamp": event["timestamp"].strftime("%Y-%m-%d %H:%M"),
+                            "frigate_timestamp": frigate_timestamp,
                         }
                     )
                 else:
@@ -340,11 +436,18 @@ async def home(request: Request):
                             "label": parts[0],
                             "camera": "-",
                             "timestamp": "-",
+                            "frigate_timestamp": frigate_timestamp,
                         }
                     )
             else:
                 gallery_data.append(
-                    {"filename": f, "label": f, "camera": "-", "timestamp": "-"}
+                    {
+                        "filename": f,
+                        "label": f,
+                        "camera": "-",
+                        "timestamp": "-",
+                        "frigate_timestamp": "-",
+                    }
                 )
 
     except Exception as e:
@@ -383,6 +486,37 @@ async def db_viewer(request: Request):
             "external_url": settings.external_url.rstrip("/"),
         },
     )
+
+
+@app.get("/inspection", response_class=HTMLResponse)
+async def inspection(request: Request):
+    """Serve the inspection UI."""
+    return templates.TemplateResponse(
+        "inspection.html",
+        {"request": request, "version": version_info},
+    )
+
+
+@app.get("/api/inspection_events")
+async def get_inspection_events(limit: int = 50, cameras: str = ""):
+    """Fetch events directly from Frigate API that have snapshots but may need ReID review."""
+    try:
+        url = f"{settings.frigate_url}/api/events?labels=person&has_snapshot=1&limit={limit}"
+        if cameras:
+            url += f"&cameras={cameras}"
+
+        logger.info(f"Fetching inspection events from Frigate: {url}")
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        events = response.json()
+
+        # Filter logic (optional, but good for UX):
+        # For now we just return them all, the frontend will display them.
+
+        return JSONResponse({"status": "success", "events": events})
+    except Exception as e:
+        logger.error(f"Error fetching inspection events: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
 @app.get("/visualization", response_class=HTMLResponse)
@@ -723,4 +857,130 @@ async def delete_image(filename: str = Form(...), source: str = Form(...)):
             )
     except Exception as e:
         logger.error(f"Error deleting image: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@app.post("/frigate_label")
+async def frigate_label(
+    event_id: str = Form(...),
+    new_label: str = Form(...),
+):
+    """Downloads a snapshot from Frigate, saves it to the gallery, and labels it."""
+    try:
+        if not reid_core:
+            return JSONResponse(
+                {"status": "error", "message": "ReID Core down"}, status_code=500
+            )
+
+        clean_label = "".join([c for c in new_label if c.isalnum()]).capitalize()
+        if not clean_label:
+            return JSONResponse(
+                {"status": "error", "message": "Invalid label"}, status_code=400
+            )
+
+        # 1. Fetch event from Frigate DB to get bounding box if we use /snapshot.jpg?crop=1
+        event_url = f"{settings.frigate_url}/api/events/{event_id}"
+        snapshot_url = (
+            f"{settings.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
+        )
+
+        # Note: In production we should run this blocking operation in a threadpool
+        ev_resp = requests.get(event_url, timeout=5)
+        ev_resp.raise_for_status()
+        data = ev_resp.json()
+
+        box = data.get("box")
+        data_box = data.get("data", {}).get("box")
+        camera = data.get("camera", "unknown")
+
+        resp = requests.get(snapshot_url, timeout=10)
+        resp.raise_for_status()
+
+        image_array = np.asarray(bytearray(resp.content), dtype="uint8")
+        image_frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+        if image_frame is None:
+            return JSONResponse(
+                {"status": "error", "message": "Invalid image data"}, status_code=400
+            )
+
+        try:
+            h, w, _ = image_frame.shape
+            x1, y1, x2, y2 = 0, 0, w, h
+            cropped = False
+
+            if data_box and len(data_box) == 4:
+                nx, ny, nw, nh = data_box
+                x1 = int(nx * w)
+                y1 = int(ny * h)
+                x2 = int((nx + nw) * w)
+                y2 = int((ny + nh) * h)
+                cropped = True
+            elif box and len(box) == 4:
+                x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
+                cropped = True
+
+            if cropped:
+                x1, y1 = max(0, x1), max(0, y1)
+                x2, y2 = min(w, x2), min(h, y2)
+                margin_w = int((x2 - x1) * 0.10)
+                margin_h = int((y2 - y1) * 0.10)
+                cx1 = max(0, x1 - margin_w)
+                cy1 = max(0, y1 - margin_h)
+                cx2 = min(w, x2 + margin_w)
+                cy2 = min(h, y2 + margin_h)
+
+                if cx2 > cx1 and cy2 > cy1 and (cx2 - cx1 < w or cy2 - cy1 < h):
+                    image_frame = image_frame[cy1:cy2, cx1:cx2]
+        except Exception as e:
+            logger.warning(f"Failed manual crop: {e}")
+
+        # 2. Add to Local Gallery
+        new_filename = f"{clean_label}_{event_id}.jpg"
+        dest_path = os.path.join(settings.gallery_dir, new_filename)
+        cv2.imwrite(dest_path, image_frame)
+
+        # 3. Reload Core
+        reid_core.reload_gallery()
+
+        # 4. Inform Frigate
+        sub_label_url = f"{settings.frigate_url}/api/events/{event_id}/sub_label"
+        payload = {"subLabel": clean_label, "subLabelScore": 1.0, "camera": camera}
+        requests.post(
+            sub_label_url, json=payload, headers={"Content-Type": "application/json"}
+        )
+
+        # (Optional) Update local tracking DB
+        # db_repo.add_event(...) IF we want it tracked as a known event in our GUI.
+        from datetime import datetime
+        from .mqtt_frigate import compute_dhash
+
+        existing_event = db_repo.get_event(event_id)
+        if existing_event:
+            db_repo.update_label(event_id, clean_label, source="manual")
+            # If it didn't have a vector, update it too
+            if not existing_event.get("vector"):
+                embedding = reid_core.get_embedding(image_frame)
+                if embedding is not None:
+                    db_repo.update_vector(event_id, embedding.tobytes())
+        else:
+            image_hash = compute_dhash(image_frame)
+            embedding = reid_core.get_embedding(image_frame)
+            vector_bytes = embedding.tobytes() if embedding is not None else None
+
+            db_repo.add_event(
+                event_id=event_id,
+                camera=camera,
+                timestamp=datetime.fromtimestamp(
+                    data.get("start_time", datetime.now().timestamp())
+                ),
+                label=clean_label,
+                snapshot_path="",
+                image_hash=image_hash,
+                vector=vector_bytes,
+            )
+
+        return JSONResponse({"status": "success", "new_filename": new_filename})
+
+    except Exception as e:
+        logger.error(f"Error processing frigate label: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)

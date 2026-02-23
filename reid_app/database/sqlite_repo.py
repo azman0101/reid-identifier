@@ -81,7 +81,7 @@ class SQLiteRepository(ReIDRepository):
         snapshot_path: str,
         image_hash: str = None,
         vector: bytes = None,
-    ):
+    ) -> bool:
         try:
             with self._connect() as conn:
                 cursor = conn.cursor()
@@ -94,12 +94,15 @@ class SQLiteRepository(ReIDRepository):
                 )
                 conn.commit()
                 logger.debug(f"Event {event_id} added successfully.")
+                return True
         except sqlite3.IntegrityError as e:
             logger.debug(
                 f"Event {event_id} (or visual duplicate) already exists (skipping). Details: {e}"
             )
+            return False
         except Exception as e:
             logger.error(f"Failed to add event {event_id}: {e}")
+            return False
 
     def update_vector(self, event_id: str, vector: bytes):
         """Update vector for a single event (used for backfill)"""

@@ -1,8 +1,8 @@
 import logging
-import numpy as np
 
 # Configure logger
 logger = logging.getLogger(__name__)
+
 
 def crop_image_from_box(image_frame, box=None, data_box=None):
     """
@@ -29,19 +29,37 @@ def crop_image_from_box(image_frame, box=None, data_box=None):
         x1, y1, x2, y2 = 0, 0, w, h
         cropped = False
 
-        if data_box and len(data_box) == 4:
+        if box and len(box) == 4:
+            logger.debug("Utils: Using box (absolute)")
+            bx1, by1, bx2, by2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
+
+            # Check if image is already cropped
+            if bx2 > w or by2 > h:
+                logger.info(
+                    "Utils: Image appears already cropped (box falls outside bounds). Returning as-is."
+                )
+                return image_frame
+            else:
+                x1, y1, x2, y2 = bx1, by1, bx2, by2
+                logger.debug(f"Utils: Using provided crop: [{x1}:{x2}, {y1}:{y2}]")
+                cropped = True
+
+        elif data_box and len(data_box) == 4:
             logger.debug("Utils: Using data_box (normalized)")
             nx, ny, nw, nh = data_box
+
+            # If the image is extremely small or already portrait mode, it's likely already cropped
+            if (h >= w and w < 600) or w < 300:
+                logger.info(
+                    "Utils: Image appears already cropped (small/portrait dimensions). Returning as-is."
+                )
+                return image_frame
+
             x1 = int(nx * w)
             y1 = int(ny * h)
             x2 = int((nx + nw) * w)
             y2 = int((ny + nh) * h)
             logger.debug(f"Utils: Calculated initial crop: [{x1}:{x2}, {y1}:{y2}]")
-            cropped = True
-        elif box and len(box) == 4:
-            logger.debug("Utils: Using box (absolute)")
-            x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
-            logger.debug(f"Utils: Using provided crop: [{x1}:{x2}, {y1}:{y2}]")
             cropped = True
         else:
             logger.warning("Utils: No valid box found. Skipping crop.")
@@ -65,9 +83,7 @@ def crop_image_from_box(image_frame, box=None, data_box=None):
 
             # Only crop if it's actually smaller than the full frame
             if cx2 > cx1 and cy2 > cy1 and (cx2 - cx1 < w or cy2 - cy1 < h):
-                logger.info(
-                    f"Utils: Applying crop [{cx1}:{cx2}, {cy1}:{cy2}]"
-                )
+                logger.info(f"Utils: Applying crop [{cx1}:{cx2}, {cy1}:{cy2}]")
                 return image_frame[cy1:cy2, cx1:cx2]
             else:
                 logger.info(

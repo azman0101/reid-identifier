@@ -113,7 +113,7 @@ class ReIDCore:
             unique_labels = list(set(self.gallery_labels))
             logger.info(f"Gallery reloaded. Known identities: {unique_labels}")
 
-    def find_match(self, embedding, threshold=0.65):
+    def find_match(self, embedding, threshold=0.55):
         """
         Finds the best match for the given embedding.
         Returns a tuple: (label, score).
