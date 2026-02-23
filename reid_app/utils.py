@@ -1,8 +1,8 @@
 import logging
-import numpy as np
 
 # Configure logger
 logger = logging.getLogger(__name__)
+
 
 def crop_image_from_box(image_frame, box=None, data_box=None):
     """
@@ -29,19 +29,20 @@ def crop_image_from_box(image_frame, box=None, data_box=None):
         x1, y1, x2, y2 = 0, 0, w, h
         cropped = False
 
-        if data_box and len(data_box) == 4:
-            logger.debug("Utils: Using data_box (normalized)")
-            nx, ny, nw, nh = data_box
-            x1 = int(nx * w)
-            y1 = int(ny * h)
-            x2 = int((nx + nw) * w)
-            y2 = int((ny + nh) * h)
-            logger.debug(f"Utils: Calculated initial crop: [{x1}:{x2}, {y1}:{y2}]")
-            cropped = True
-        elif box and len(box) == 4:
+        if box and len(box) == 4:
             logger.debug("Utils: Using box (absolute)")
             x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
             logger.debug(f"Utils: Using provided crop: [{x1}:{x2}, {y1}:{y2}]")
+            cropped = True
+        elif data_box and len(data_box) == 4:
+            logger.debug("Utils: Using data_box (normalized)")
+            # Frigate data.box is [ymin, xmin, ymax, xmax]
+            ny1, nx1, ny2, nx2 = data_box
+            x1 = int(nx1 * w)
+            y1 = int(ny1 * h)
+            x2 = int(nx2 * w)
+            y2 = int(ny2 * h)
+            logger.debug(f"Utils: Calculated initial crop: [{x1}:{x2}, {y1}:{y2}]")
             cropped = True
         else:
             logger.warning("Utils: No valid box found. Skipping crop.")
@@ -65,9 +66,7 @@ def crop_image_from_box(image_frame, box=None, data_box=None):
 
             # Only crop if it's actually smaller than the full frame
             if cx2 > cx1 and cy2 > cy1 and (cx2 - cx1 < w or cy2 - cy1 < h):
-                logger.info(
-                    f"Utils: Applying crop [{cx1}:{cx2}, {cy1}:{cy2}]"
-                )
+                logger.info(f"Utils: Applying crop [{cx1}:{cx2}, {cy1}:{cy2}]")
                 return image_frame[cy1:cy2, cx1:cx2]
             else:
                 logger.info(
