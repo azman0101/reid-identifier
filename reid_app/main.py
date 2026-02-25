@@ -5,7 +5,7 @@ import logging
 import sys
 import threading
 from datetime import datetime
-from .utils import crop_image_from_box
+from .utils import crop_image_from_box, update_frigate_description
 import cv2
 import numpy as np
 import requests
@@ -948,6 +948,13 @@ async def frigate_label(
         requests.post(
             sub_label_url, json=payload, headers={"Content-Type": "application/json"}
         )
+
+        # 5. Update Description
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        status_line = f"[ReID]: {current_time} - Manually labeled '{clean_label}' (100.0%) [User]"
+
+        # Use run_in_threadpool since it involves I/O
+        await run_in_threadpool(update_frigate_description, event_id, status_line)
 
         # (Optional) Update local tracking DB
         # db_repo.add_event(...) IF we want it tracked as a known event in our GUI.

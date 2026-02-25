@@ -179,6 +179,64 @@ class TestReIDCore(unittest.TestCase):
             self.assertIsNone(label)
             self.assertEqual(score, 0.0)
 
+    def test_find_closest_match(self):
+        # Setup mocks
+        mock_ie = MagicMock()
+        with patch("reid_app.reid_engine.Core", return_value=mock_ie):
+            mock_ie.read_model.return_value = MagicMock()
+            mock_ie.compile_model.return_value = MagicMock()
+
+            with (
+                patch.object(settings, "model_path", "dummy.xml"),
+                patch("os.path.exists", return_value=True),
+                patch("os.listdir", return_value=[]),
+            ):
+                engine = ReIDCore()
+
+                # Gallery: A=[1,0], B=[0,1]
+                emb_a = np.zeros(256, dtype=np.float32)
+                emb_a[0] = 1.0
+                emb_b = np.zeros(256, dtype=np.float32)
+                emb_b[1] = 1.0
+
+                engine.gallery_embeddings = np.stack([emb_a, emb_b])
+                engine.gallery_labels = ["A", "B"]
+
+                # Query roughly 60 degrees away from A
+                # Cos(60) = 0.5. < 0.55 threshold.
+                query = np.zeros(256, dtype=np.float32)
+                query[0] = 0.5
+                query[1] = 0.866 # Closest to B actually!
+                # Wait, closest to B: 0.866 > 0.5. B match!
+
+                # To be close to A but < 0.55:
+                # A=[1,0], B=[0,1]
+                # Query needs to be somewhat far from A and B.
+                # Let's use 3rd dimension.
+                # A=[1,0,0], B=[0,1,0]
+                # Query=[0.5, 0, 0.866]. Dot with A = 0.5. Dot with B = 0.
+
+                emb_a = np.zeros(256, dtype=np.float32)
+                emb_a[0] = 1.0
+
+                emb_b = np.zeros(256, dtype=np.float32)
+                emb_b[1] = 1.0
+
+                engine.gallery_embeddings = np.stack([emb_a, emb_b])
+                engine.gallery_labels = ["A", "B"]
+
+                query = np.zeros(256, dtype=np.float32)
+                query[0] = 0.5
+                query[2] = 0.866 # Mostly in Z direction
+
+                # find_match with default threshold (0.55) should return None
+                match, score = engine.find_match(query, threshold=0.55)
+                self.assertIsNone(match)
+
+                # find_closest_match should return "A" (score 0.5)
+                match, score = engine.find_closest_match(query)
+                self.assertEqual(match, "A")
+                self.assertAlmostEqual(score, 0.5, places=3)
 
 if __name__ == "__main__":
     unittest.main()

@@ -41,12 +41,18 @@ class TestMQTTOrphanedFile(unittest.TestCase):
 
         mock_cv2.imdecode.return_value = MagicMock()
         self.mock_core.find_match.return_value = (None, 0.0)
+        self.mock_core.find_closest_match.return_value = (None, 0.0)
 
         # Simulate DUPLICATE -> add_event returns False
         self.mock_db.add_event.return_value = False
 
         self.worker.process_event(event_id, "cam1")
 
+        # The worker might fail before add_event if update_frigate_description fails?
+        # No, update_frigate_description catches exception.
+        # But wait, find_closest_match returns None, 0.0. This is fine.
+
+        # Check if process_event completed
         self.mock_db.add_event.assert_called_once()
         self.assertFalse(os.path.exists(filepath), "Orphaned file should be deleted on duplicate")
 
@@ -69,6 +75,7 @@ class TestMQTTOrphanedFile(unittest.TestCase):
         mock_requests.get.return_value = mock_resp
         mock_cv2.imdecode.return_value = MagicMock()
         self.mock_core.find_match.return_value = (None, 0.0)
+        self.mock_core.find_closest_match.return_value = (None, 0.0)
 
         # Simulate SUCCESS -> add_event returns True
         self.mock_db.add_event.return_value = True

@@ -113,12 +113,11 @@ class ReIDCore:
             unique_labels = list(set(self.gallery_labels))
             logger.info(f"Gallery reloaded. Known identities: {unique_labels}")
 
-    def find_match(self, embedding, threshold=0.55):
+    def _compute_best_match(self, embedding):
         """
-        Finds the best match for the given embedding.
-        Returns a tuple: (label, score).
-        label is None if the similarity score is below the threshold.
-        Thread-safe access to known_silhouettes.
+        Internal helper: Computes the best match and score against the gallery.
+        Returns: (best_match_label, best_score_float)
+        If gallery is empty or embedding invalid, returns (None, 0.0)
         """
         if self.gallery_embeddings.shape[0] == 0:
             return None, 0.0
@@ -140,8 +139,25 @@ class ReIDCore:
             best_score = float(scores[best_idx])
             best_match = self.gallery_labels[best_idx]
 
+        return best_match, best_score
+
+    def find_match(self, embedding, threshold=0.55):
+        """
+        Finds the best match for the given embedding.
+        Returns a tuple: (label, score).
+        label is None if the similarity score is below the threshold.
+        Thread-safe access to known_silhouettes.
+        """
+        best_match, best_score = self._compute_best_match(embedding)
         logger.debug(f"Best match: {best_match} with score: {best_score}")
 
-        if best_score >= threshold:
+        if best_match and best_score >= threshold:
             return best_match, best_score
         return None, best_score
+
+    def find_closest_match(self, embedding):
+        """
+        Finds the absolute closest match regardless of threshold.
+        Returns: (label, score).
+        """
+        return self._compute_best_match(embedding)
