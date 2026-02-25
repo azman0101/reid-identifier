@@ -56,11 +56,17 @@ class ReIDCore:
         if image_frame is None or image_frame.size == 0:
             return np.zeros((256,), dtype=np.float32)
 
+        # Convert BGR (OpenCV default) to RGB (standard for deep learning models)
+        rgb_image = cv2.cvtColor(image_frame, cv2.COLOR_BGR2RGB)
+
         # Resize to 128x256 (Width, Height)
-        resized_image = cv2.resize(image_frame, (128, 256))
+        resized_image = cv2.resize(rgb_image, (128, 256))
 
         # HWC to CHW
         input_tensor = resized_image.transpose((2, 0, 1))
+
+        # Keep as float32 or let compiled_model handle it, but standard is float32
+        input_tensor = input_tensor.astype(np.float32)
 
         # Add batch dimension [1, C, H, W]
         input_tensor = np.expand_dims(input_tensor, axis=0)

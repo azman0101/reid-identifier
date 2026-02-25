@@ -101,6 +101,7 @@ def crop_image_from_box(image_frame, box=None, data_box=None):
         )
         return image_frame
 
+
 def update_frigate_description(event_id, new_status_line):
     """
     Updates the Frigate event description, preserving existing user notes
@@ -116,7 +117,9 @@ def update_frigate_description(event_id, new_status_line):
         # 1. Fetch current description
         resp = requests.get(url, timeout=5)
         if resp.status_code != 200:
-            logger.error(f"Failed to fetch event {event_id} for description update: {resp.status_code}")
+            logger.error(
+                f"Failed to fetch event {event_id} for description update: {resp.status_code}"
+            )
             return False
 
         data = resp.json()
@@ -140,6 +143,10 @@ def update_frigate_description(event_id, new_status_line):
 
         final_desc = "\n".join(new_lines)
 
+        if final_desc == current_desc:
+            logger.info(f"Description for {event_id} is unchanged. Skipping update.")
+            return True
+
         # 4. POST update
         desc_url = f"{settings.frigate_url}/api/events/{event_id}/description"
         payload = {"description": final_desc}
@@ -154,7 +161,9 @@ def update_frigate_description(event_id, new_status_line):
             logger.info(f"Updated description for {event_id}")
             return True
         else:
-            logger.error(f"Failed to update description for {event_id}: {post_resp.status_code} {post_resp.text}")
+            logger.error(
+                f"Failed to update description for {event_id}: {post_resp.status_code} {post_resp.text}"
+            )
             return False
 
     except Exception as e:
