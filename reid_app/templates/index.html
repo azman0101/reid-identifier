@@ -70,7 +70,8 @@
                     oninput="renderGalleryGrid()" title="Date de fin">
             </div>
         </div>
-        <div id="galleryGrid" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 mb-12">
+        <!-- UPDATED: Larger Grid for better visibility -->
+        <div id="galleryGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-8 mb-12">
             <!-- JS virtualized -->
         </div>
         <div id="galleryEmpty" class="hidden text-gray-400 col-span-full text-center py-4">La galerie est vide (ou aucun
@@ -262,35 +263,51 @@
 
                 filtered.forEach(item => {
                     const wrapper = document.createElement('div');
-                    wrapper.className = "min-h-[350px]";
+                    // UPDATED: Taller card to fit image better
+                    wrapper.className = "min-h-[500px]";
 
                     let cameraHtml = item.camera && item.camera !== "-" ? `<p>📸 ${escapeHtml(item.camera)}</p>` : '';
 
+                    // UPDATED: Changed img class to object-contain and increased height
+                    // Added absolute delete button on top-right of the image
                     wrapper.dataset.htmlContent = `
-                    <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3 opacity-90 hover:opacity-100 transition h-full flex flex-col">
+                    <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700 p-3 opacity-90 hover:opacity-100 transition h-full flex flex-col relative">
+
                         <div class="relative group cursor-pointer" onclick="openZoomModal('/gallery_imgs/${escapeHtml(item.filename)}')">
-                            <img src="/gallery_imgs/${escapeHtml(item.filename)}" class="w-full h-48 object-cover rounded mb-3" loading="lazy">
-                            <div class="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center rounded mb-3">
+                            <!-- Show full image uncropped -->
+                            <img src="/gallery_imgs/${escapeHtml(item.filename)}" class="w-full h-80 object-contain bg-black/20 rounded mb-3" loading="lazy">
+
+                            <div class="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center rounded mb-3 pointer-events-none">
                                 <span class="text-white opacity-0 group-hover:opacity-100 text-3xl drop-shadow-lg">🔍</span>
                             </div>
+
+                            <!-- Quick Delete Button Overlay -->
+                            <button type="button" onclick="event.stopPropagation(); deleteImg('${escapeHtml(item.filename)}', 'gallery')"
+                                class="absolute top-2 right-2 bg-red-600/90 hover:bg-red-500 text-white p-2 rounded-full shadow-lg transition z-10" title="Supprimer">
+                                🗑️
+                            </button>
                         </div>
-                        <p class="text-center font-bold text-green-400 mb-1 truncate" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</p>
-                        <div class="text-xs text-gray-400 mb-2 text-center flex-grow flex flex-col justify-center">
+
+                        <p class="text-center font-bold text-green-400 mb-1 truncate text-lg" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</p>
+
+                        <div class="text-xs text-gray-400 mb-4 text-center flex-grow flex flex-col justify-center">
                             ${cameraHtml}
                             <p title="Date Frigate">🕒 ${escapeHtml(item.frigate_timestamp)}</p>
                             <p title="Date Label">🏷️ ${escapeHtml(item.timestamp)}</p>
                         </div>
-                        <form id="form_${escapeHtml(item.filename)}" onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2 mt-auto">
+
+                        <form id="form_${escapeHtml(item.filename)}" onsubmit="submitForm(event, '/label')" class="flex flex-col gap-2 mt-auto border-t border-gray-700 pt-3">
                             <input type="hidden" name="filename" value="${escapeHtml(item.filename)}">
                             <input type="hidden" name="source" value="gallery">
-                            <input type="text" name="new_label" placeholder="Corriger..." required class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-yellow-500 outline-none w-full">
-                            <select name="update_type" class="bg-gray-700 text-white text-xs rounded px-2 py-1 outline-none w-full border border-gray-600">
-                                <option value="image">Cette image seule</option>
-                                <option value="identity">Toute l'identité</option>
-                            </select>
+
+                            <input type="text" name="new_label" placeholder="Renommer..." required class="bg-gray-700 text-white text-sm rounded px-2 py-2 focus:ring-2 focus:ring-yellow-500 outline-none w-full">
+
                             <div class="flex gap-2">
-                                <button type="submit" class="bg-yellow-600 hover:bg-yellow-500 w-full py-1 rounded text-sm font-bold transition">Modifier</button>
-                                <button type="button" onclick="deleteImg('${escapeHtml(item.filename)}', 'gallery')" class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
+                                <select name="update_type" class="bg-gray-700 text-white text-xs rounded px-2 py-1 outline-none flex-1 border border-gray-600">
+                                    <option value="image">Cette image</option>
+                                    <option value="identity">Tout ${escapeHtml(item.label)}</option>
+                                </select>
+                                <button type="submit" class="bg-yellow-600 hover:bg-yellow-500 px-4 py-1 rounded text-sm font-bold transition">OK</button>
                             </div>
                         </form>
                     </div>
@@ -306,7 +323,7 @@
             const btn = e.target.querySelector('button[type="submit"]');
             const originalText = btn.innerText;
             btn.disabled = true;
-            btn.innerText = "Wait...";
+            btn.innerText = "...";
 
             try {
                 const formData = new FormData(e.target);
@@ -348,6 +365,7 @@
                     const result = await response.json();
 
                     if (result.status === 'deleted') {
+                        // Optimistic UI removal if it was a quick action
                         window.location.reload();
                     } else {
                         alert("Erreur suppression: " + result.message);

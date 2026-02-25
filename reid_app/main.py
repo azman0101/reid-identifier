@@ -321,6 +321,7 @@ async def home(request: Request):
             f
             for f in os.listdir(settings.unknown_dir)
             if f.lower().endswith((".jpg", ".jpeg", ".png"))
+            and f not in db_files
         )
         db_files = set(u["filename"] for u in unknowns_data)
         for f in disk_files:
@@ -950,6 +951,7 @@ async def frigate_label(
         )
 
         # 5. Update Description
+        # Use existing datetime import from top level, don't re-import inside to avoid UnboundLocalError
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         status_line = f"[ReID]: {current_time} - Manually labeled '{clean_label}' (100.0%) [User]"
 
@@ -958,7 +960,6 @@ async def frigate_label(
 
         # (Optional) Update local tracking DB
         # db_repo.add_event(...) IF we want it tracked as a known event in our GUI.
-        from datetime import datetime
         from .mqtt_frigate import compute_dhash
 
         existing_event = db_repo.get_event(event_id)

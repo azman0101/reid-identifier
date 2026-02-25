@@ -1,56 +1,56 @@
-import os
+import unittest
+from unittest.mock import MagicMock, patch
+from fastapi.testclient import TestClient
+from reid_app.main import app, frigate_label
+from reid_app import main
 
+class TestMainEndpoint(unittest.TestCase):
+    def setUp(self):
+        # Mock ReIDCore
+        self.mock_core = MagicMock()
+        main.reid_core = self.mock_core
+        self.mock_core.get_embedding.return_value = None
 
-def test_path_sanitization(filename, base_dir):
-    # This simulates the logic in the app
-    safe_filename = os.path.basename(filename)
-    path = os.path.join(base_dir, safe_filename)
-    return path
+        # Mock DB Repo
+        self.mock_repo = MagicMock()
+        main.db_repo = self.mock_repo
 
+        # Mock settings
+        main.settings.gallery_dir = "tests/temp_gallery"
+        main.settings.unknown_dir = "tests/temp_unknown"
 
-def run_tests():
-    base_dir = "/app/models/unknown"
+    @patch("reid_app.main.requests")
+    @patch("reid_app.main.cv2")
+    @patch("reid_app.main.run_in_threadpool")
+    def test_frigate_label_datetime_error(self, mock_threadpool, mock_cv2, mock_requests):
+        # Setup mocks to simulate successful flow up to the point of error
+        mock_requests.get.return_value.status_code = 200
+        mock_requests.get.return_value.json.return_value = {"start_time": 1700000000}
+        mock_requests.get.return_value.content = b"fake_image"
 
-    test_cases = [
-        ("test.jpg", "/app/models/unknown/test.jpg"),
-        ("../../etc/passwd", "/app/models/unknown/passwd"),
-        ("/etc/passwd", "/app/models/unknown/passwd"),
-        ("subdir/test.jpg", "/app/models/unknown/test.jpg"),
-        (
-            "..\\..\\windows\\system32\\config",
-            "/app/models/unknown/config"
-            if os.name != "nt"
-            else "/app/models/unknown/..\\..\\windows\\system32\\config",
-        ),
-    ]
+        mock_cv2.imdecode.return_value = MagicMock()
+        mock_cv2.imdecode.return_value.shape = (100, 100, 3)
 
-    # Note: on linux, os.path.basename("..\\..\\config") is "..\\..\\config" because \ is not a separator.
-    # But usually these apps run on Linux.
+        # Mock threadpool to run synchronously for update_frigate_description
+        async def mock_run(func, *args, **kwargs):
+            return func(*args, **kwargs)
+        mock_threadpool.side_effect = mock_run
 
-    success = True
-    for filename, expected in test_cases:
-        result = test_path_sanitization(filename, base_dir)
-        if result == expected:
-            print(f"✅ PASS: '{filename}' -> '{result}'")
-        else:
-            # Handle Windows paths on Linux if necessary, but standard basename is usually enough for traversal
-            if os.name != "nt" and "\\" in filename:
-                # If it's a linux system, it might not catch backslashes as separators
-                # But most attacks use /
-                print(
-                    f"ℹ️ INFO: '{filename}' -> '{result}' (Note: backslashes not treated as separators on Linux)"
-                )
-                continue
+        # Call the endpoint handler directly (or via TestClient if prefered)
+        # Using TestClient requires mocking dependencies globally which is harder here
+        # Let's call the function directly as it's an async def
+        import asyncio
 
-            print(f"❌ FAIL: '{filename}' -> '{result}' (Expected: '{expected}')")
-            success = False
+        # Run the async function
+        response = asyncio.run(frigate_label(event_id="test_event", new_label="TestLabel"))
 
-    if success:
-        print("\nAll path sanitization tests passed!")
-    else:
-        print("\nSome tests failed.")
-        exit(1)
+        # Check if successful
+        # If the UnboundLocalError persists, this will raise an exception
+        self.assertEqual(response.status_code, 200)
 
+        # Verify update_frigate_description was called (via mock_threadpool)
+        # Note: We can't easily check args passed to run_in_threadpool without more complex mocking
+        # but execution success is enough.
 
 if __name__ == "__main__":
-    run_tests()
+    unittest.main()
