@@ -108,6 +108,15 @@ class MQTTWorker:
 
                 should_update_frigate = False
                 if match:
+                    # Self-Learning Logic: if confidence is very high, learn this new appearance
+                    if score >= settings.self_learning_threshold:
+                        with self.reid_core.lock:
+                            current_count = self.reid_core.gallery_labels.count(match)
+
+                        if current_count < settings.max_gallery_per_identity:
+                            logger.info(f"[{event_id}] Self-learning triggered for '{match}' (Score: {score:.3f} >= {settings.self_learning_threshold})")
+                            self.reid_core.update_gallery(match, embedding, save_to_disk=True, frame=image_frame)
+
                     if not existing_sub_label:
                         should_update_frigate = True
                     elif (
