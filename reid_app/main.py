@@ -832,20 +832,42 @@ async def label_image(
 
 @app.post("/delete")
 async def delete_image(filename: str = Form(...), source: str = Form(...)):
-    """Deletes an image."""
+    """Deletes an image and its associated event from the database."""
     try:
         # Sanitize filename to prevent path traversal
         filename = os.path.basename(filename)
-        folder = settings.unknown_dir if source == "unknown" else settings.gallery_dir
-        path = os.path.join(folder, filename)
+
+        # Extract event_id
+        base_name = os.path.splitext(filename)[0]
+        if "_" in base_name:
+            event_id = base_name.split("_")[-1]
+        else:
+            event_id = base_name
 
         def _delete_sync():
-            if os.path.exists(path):
-                os.remove(path)
-                if source == "gallery" and reid_core:
-                    reid_core.reload_gallery()
-                return True
-            return False
+            deleted_any = False
+
+            # Delete from both possible locations to be thorough
+            unknown_path = os.path.join(settings.unknown_dir, filename)
+            if os.path.exists(unknown_path):
+                os.remove(unknown_path)
+                deleted_any = True
+
+            gallery_path = os.path.join(settings.gallery_dir, filename)
+            if os.path.exists(gallery_path):
+                os.remove(gallery_path)
+                deleted_any = True
+
+            # Delete from DB
+            if db_repo and event_id:
+                db_deleted = db_repo.delete_event(event_id)
+                if db_deleted:
+                    deleted_any = True
+
+            if source == "gallery" and reid_core and deleted_any:
+                reid_core.reload_gallery()
+
+            return deleted_any
 
         deleted = await run_in_threadpool(_delete_sync)
 
@@ -853,10 +875,11 @@ async def delete_image(filename: str = Form(...), source: str = Form(...)):
             return {"status": "deleted"}
         else:
             return JSONResponse(
-                {"status": "error", "message": "File not found"}, status_code=404
+                {"status": "error", "message": "File or event not found"},
+                status_code=404,
             )
     except Exception as e:
-        logger.error(f"Error deleting image: {e}")
+        logger.error(f"Error deleting image/event: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
