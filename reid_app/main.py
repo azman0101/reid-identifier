@@ -180,7 +180,7 @@ async def fetch_snapshot(event_id: str):
         # First get event details for bounding box
         event_url = f"{settings.frigate_url}/api/events/{event_id}"
         snapshot_url = (
-            f"{settings.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
+            f"{settings.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1&bbox=1"
         )
 
         def _download_and_crop():
@@ -422,6 +422,7 @@ async def home(request: Request):
                     gallery_data.append(
                         {
                             "filename": f,
+                            "event_id": event_id,
                             "label": event["current_label"],
                             "camera": event["camera"],
                             "timestamp": event["timestamp"].strftime("%Y-%m-%d %H:%M"),
@@ -433,6 +434,7 @@ async def home(request: Request):
                     gallery_data.append(
                         {
                             "filename": f,
+                            "event_id": event_id,
                             "label": parts[0],
                             "camera": "-",
                             "timestamp": "-",
@@ -443,6 +445,7 @@ async def home(request: Request):
                 gallery_data.append(
                     {
                         "filename": f,
+                        "event_id": "-",
                         "label": f,
                         "camera": "-",
                         "timestamp": "-",
@@ -864,12 +867,13 @@ async def delete_image(filename: str = Form(...), source: str = Form(...)):
                 if db_deleted:
                     deleted_any = True
 
-            if source == "gallery" and reid_core and deleted_any:
-                reid_core.reload_gallery()
-
             return deleted_any
 
         deleted = await run_in_threadpool(_delete_sync)
+
+        # Reload gallery in the background
+        if source == "gallery" and reid_core and deleted:
+            threading.Thread(target=reid_core.reload_gallery, daemon=True).start()
 
         if deleted:
             return {"status": "deleted"}
@@ -901,10 +905,10 @@ async def frigate_label(
                 {"status": "error", "message": "Invalid label"}, status_code=400
             )
 
-        # 1. Fetch event from Frigate DB to get bounding box if we use /snapshot.jpg?crop=1
+        # 1. Fetch event from Frigate DB to get bounding box if we use /snapshot.jpg?crop=1&bbox=1
         event_url = f"{settings.frigate_url}/api/events/{event_id}"
         snapshot_url = (
-            f"{settings.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
+            f"{settings.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1&bbox=1"
         )
 
         # Note: In production we should run this blocking operation in a threadpool

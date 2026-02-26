@@ -72,7 +72,7 @@ class MQTTWorker:
         """Processes a single event in a separate thread."""
         try:
             snapshot_url = (
-                f"{self.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
+                f"{self.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1&bbox=1"
             )
             logger.info(f"[{event_id}] Fetching cropped snapshot from: {snapshot_url}")
             response = requests.get(snapshot_url, timeout=10)
