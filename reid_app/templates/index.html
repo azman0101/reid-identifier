@@ -207,6 +207,7 @@
                             </div>
                         </div>
                         <div class="text-xs text-gray-400 mb-2 flex-grow">
+                            <p title="Event ID" class="mb-1 text-[10px] break-all">🆔 ${escapeHtml(item.event_id)}</p>
                             <p>📸 ${escapeHtml(item.camera)}</p>
                             <p title="Date Frigate">🕒 ${escapeHtml(item.frigate_timestamp)}</p>
                             <p title="Date Label">🏷️ ${escapeHtml(item.timestamp)}</p>
@@ -218,7 +219,7 @@
                             <input type="text" id="new_label_${escapeHtml(item.event_id)}" name="new_label" placeholder="Nom (ex: Maël)" required class="bg-gray-700 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 outline-none w-full">
                             <div class="flex gap-2">
                                 <button type="submit" class="bg-blue-600 hover:bg-blue-500 w-full py-1 rounded text-sm font-bold transition">Valider</button>
-                                <button type="button" onclick="deleteImg('${escapeHtml(item.filename)}', 'unknown')" class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
+                                <button type="button" onclick="deleteImg(this, '${escapeHtml(item.filename)}', 'unknown')" class="bg-red-600 hover:bg-red-500 px-2 rounded transition" title="Supprimer">✕</button>
                             </div>
                         </form>
                     </div>
@@ -282,7 +283,7 @@
                             </div>
 
                             <!-- Quick Delete Button Overlay -->
-                            <button type="button" onclick="event.stopPropagation(); deleteImg('${escapeHtml(item.filename)}', 'gallery')"
+                            <button type="button" onclick="event.stopPropagation(); deleteImg(this, '${escapeHtml(item.filename)}', 'gallery')"
                                 class="absolute top-2 right-2 bg-red-600/90 hover:bg-red-500 text-white p-2 rounded-full shadow-lg transition z-10" title="Supprimer">
                                 🗑️
                             </button>
@@ -291,6 +292,7 @@
                         <p class="text-center font-bold text-green-400 mb-1 truncate text-lg" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</p>
 
                         <div class="text-xs text-gray-400 mb-4 text-center flex-grow flex flex-col justify-center">
+                            <p title="Event ID" class="mb-1 text-[10px] break-all">🆔 ${escapeHtml(item.event_id)}</p>
                             ${cameraHtml}
                             <p title="Date Frigate">🕒 ${escapeHtml(item.frigate_timestamp)}</p>
                             <p title="Date Label">🏷️ ${escapeHtml(item.timestamp)}</p>
@@ -355,7 +357,7 @@
             }
         }
 
-        async function deleteImg(filename, source) {
+        async function deleteImg(btnElement, filename, source) {
             if (confirm("Supprimer cette image définitivement ?")) {
                 try {
                     const formData = new FormData();
@@ -365,7 +367,14 @@
                     const result = await response.json();
 
                     if (result.status === 'deleted') {
-                        window.location.reload();
+                        // Remove the card from the DOM without reloading the page
+                        const cardElement = btnElement.closest('[data-html-content]');
+                        if (cardElement) {
+                            cardElement.remove();
+                        } else {
+                            // Fallback if not found
+                            window.location.reload();
+                        }
                     } else {
                         alert("Erreur suppression: " + result.message);
                     }
