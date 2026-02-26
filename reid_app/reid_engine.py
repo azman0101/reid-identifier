@@ -56,11 +56,17 @@ class ReIDCore:
         if image_frame is None or image_frame.size == 0:
             return np.zeros((256,), dtype=np.float32)
 
+        # Convert BGR (OpenCV default) to RGB (standard for deep learning models)
+        rgb_image = cv2.cvtColor(image_frame, cv2.COLOR_BGR2RGB)
+
         # Resize to 128x256 (Width, Height)
-        resized_image = cv2.resize(image_frame, (128, 256))
+        resized_image = cv2.resize(rgb_image, (128, 256))
 
         # HWC to CHW
         input_tensor = resized_image.transpose((2, 0, 1))
+
+        # Keep as float32 or let compiled_model handle it, but standard is float32
+        input_tensor = input_tensor.astype(np.float32)
 
         # Add batch dimension [1, C, H, W]
         input_tensor = np.expand_dims(input_tensor, axis=0)
@@ -113,12 +119,11 @@ class ReIDCore:
             unique_labels = list(set(self.gallery_labels))
             logger.info(f"Gallery reloaded. Known identities: {unique_labels}")
 
-    def find_match(self, embedding, threshold=0.55):
+    def _compute_best_match(self, embedding):
         """
-        Finds the best match for the given embedding.
-        Returns a tuple: (label, score).
-        label is None if the similarity score is below the threshold.
-        Thread-safe access to known_silhouettes.
+        Internal helper: Computes the best match and score against the gallery.
+        Returns: (best_match_label, best_score_float)
+        If gallery is empty or embedding invalid, returns (None, 0.0)
         """
         if self.gallery_embeddings.shape[0] == 0:
             return None, 0.0
@@ -140,8 +145,25 @@ class ReIDCore:
             best_score = float(scores[best_idx])
             best_match = self.gallery_labels[best_idx]
 
+        return best_match, best_score
+
+    def find_match(self, embedding, threshold=0.55):
+        """
+        Finds the best match for the given embedding.
+        Returns a tuple: (label, score).
+        label is None if the similarity score is below the threshold.
+        Thread-safe access to known_silhouettes.
+        """
+        best_match, best_score = self._compute_best_match(embedding)
         logger.debug(f"Best match: {best_match} with score: {best_score}")
 
-        if best_score >= threshold:
+        if best_match and best_score >= threshold:
             return best_match, best_score
         return None, best_score
+
+    def find_closest_match(self, embedding):
+        """
+        Finds the absolute closest match regardless of threshold.
+        Returns: (label, score).
+        """
+        return self._compute_best_match(embedding)

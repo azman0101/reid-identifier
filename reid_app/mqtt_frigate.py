@@ -1,7 +1,7 @@
 import os
 import json
 import requests
-from .utils import crop_image_from_box
+from .utils import crop_image_from_box, update_frigate_description
 import cv2
 import numpy as np
 import paho.mqtt.client as mqtt
@@ -119,6 +119,7 @@ class MQTTWorker:
                         )
                         should_update_frigate = True
 
+                update_success = False
                 if should_update_frigate:
                     # Known silhouette with sufficient confidence, update Frigate
                     # POST to sub_label endpoint
@@ -144,31 +145,7 @@ class MQTTWorker:
                         logger.info(
                             f"[{event_id}] ✅ Successfully updated Frigate with recognized identity: {match}"
                         )
-
-                        # Add a description noting that this script added the label
-                        desc_url = (
-                            f"{self.frigate_url}/api/events/{event_id}/description"
-                        )
-
-                        # Generate human-friendly timestamp
-                        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                        desc_payload = {
-                            "description": f"Auto-labeled as '{match}' ({score * 100:.1f}%) at {current_time} by ReID-Identifier"
-                        }
-                        desc_resp = requests.post(
-                            desc_url, json=desc_payload, headers=headers
-                        )
-
-                        if desc_resp.status_code == 200:
-                            logger.info(
-                                f"[{event_id}] ✅ Successfully updated Frigate event description."
-                            )
-                        else:
-                            logger.error(
-                                f"[{event_id}] Failed to update description in Frigate HTTP {desc_resp.status_code}: {desc_resp.text}"
-                            )
-
+                        update_success = True
                     else:
                         logger.error(
                             f"[{event_id}] Failed to update sub_label in Frigate HTTP {resp.status_code}: {resp.text}"
@@ -185,6 +162,35 @@ class MQTTWorker:
                 else:
                     # It was already sub_labeled manually, or we had low confidence. Don't save it as unknown.
                     snapshot_path_db = ""
+
+                # --- UPDATE DESCRIPTION WITH STATUS ---
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                status_msg = ""
+                display_score = 0.0
+
+                if match:
+                    display_score = score
+                    if update_success:
+                         status_msg = f"Auto-labeled '{match}'"
+                    elif should_update_frigate and not update_success:
+                         status_msg = f"Failed to auto-label '{match}' (API Error)"
+                    elif existing_sub_label == match:
+                         status_msg = f"Verified '{match}'"
+                    else:
+                         status_msg = f"Possible match '{match}' (conflicts with '{existing_sub_label}')"
+                else:
+                    # No match found above threshold
+                    closest_label, closest_score = self.reid_core.find_closest_match(embedding)
+                    if closest_label:
+                        status_msg = f"Possible match '{closest_label}' - Low confidence"
+                        display_score = closest_score
+                    else:
+                        status_msg = "No match found"
+                        display_score = 0.0
+
+                full_status_line = f"[ReID]: {current_time} - {status_msg} ({display_score * 100:.1f}%) [System]"
+                update_frigate_description(event_id, full_status_line)
+                # --------------------------------------
 
                 # Compute fuzzy hash of the exact image going into the algorithm
                 # (helps with extremely robust db deduplication later)

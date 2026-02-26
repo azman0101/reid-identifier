@@ -5,7 +5,7 @@ import logging
 import sys
 import threading
 from datetime import datetime
-from .utils import crop_image_from_box
+from .utils import crop_image_from_box, update_frigate_description
 import cv2
 import numpy as np
 import requests
@@ -317,12 +317,12 @@ async def home(request: Request):
                 }
             )
         # Also catch files on disk that might not be in DB (orphaned)
+        db_files = set(u["filename"] for u in unknowns_data)
         disk_files = set(
             f
             for f in os.listdir(settings.unknown_dir)
-            if f.lower().endswith((".jpg", ".jpeg", ".png"))
+            if f.lower().endswith((".jpg", ".jpeg", ".png")) and f not in db_files
         )
-        db_files = set(u["filename"] for u in unknowns_data)
         for f in disk_files:
             if f not in db_files:
                 # Handle true orphan missing from DB: fetch metadata & suggest label
@@ -949,9 +949,18 @@ async def frigate_label(
             sub_label_url, json=payload, headers={"Content-Type": "application/json"}
         )
 
+        # 5. Update Description
+        # Use existing datetime import from top level, don't re-import inside to avoid UnboundLocalError
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        status_line = (
+            f"[ReID]: {current_time} - Manually labeled '{clean_label}' (100.0%) [User]"
+        )
+
+        # Use run_in_threadpool since it involves I/O
+        await run_in_threadpool(update_frigate_description, event_id, status_line)
+
         # (Optional) Update local tracking DB
         # db_repo.add_event(...) IF we want it tracked as a known event in our GUI.
-        from datetime import datetime
         from .mqtt_frigate import compute_dhash
 
         existing_event = db_repo.get_event(event_id)

@@ -1,4 +1,6 @@
 import logging
+import requests
+from .config import settings
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -98,3 +100,72 @@ def crop_image_from_box(image_frame, box=None, data_box=None):
             f"Utils: Failed to crop image manually: {e}. Proceeding with original image."
         )
         return image_frame
+
+
+def update_frigate_description(event_id, new_status_line):
+    """
+    Updates the Frigate event description, preserving existing user notes
+    and replacing only the [ReID] status line.
+
+    Args:
+        event_id: The Frigate event ID.
+        new_status_line: The complete new status line (e.g., "[ReID]: ...").
+    """
+    try:
+        url = f"{settings.frigate_url}/api/events/{event_id}"
+
+        # 1. Fetch current description
+        resp = requests.get(url, timeout=5)
+        if resp.status_code != 200:
+            logger.error(
+                f"Failed to fetch event {event_id} for description update: {resp.status_code}"
+            )
+            return False
+
+        data = resp.json()
+        current_desc = data.get("description", "")
+        if current_desc is None:
+            current_desc = ""
+
+        # 2. Parse and filter lines
+        lines = current_desc.split("\n")
+        new_lines = []
+        for line in lines:
+            if not line.strip().startswith("[ReID]:"):
+                new_lines.append(line)
+
+        # Remove trailing empty lines to keep it clean
+        while new_lines and not new_lines[-1].strip():
+            new_lines.pop()
+
+        # 3. Append new status
+        new_lines.append(new_status_line)
+
+        final_desc = "\n".join(new_lines)
+
+        if final_desc == current_desc:
+            logger.info(f"Description for {event_id} is unchanged. Skipping update.")
+            return True
+
+        # 4. POST update
+        desc_url = f"{settings.frigate_url}/api/events/{event_id}/description"
+        payload = {"description": final_desc}
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+        post_resp = requests.post(desc_url, json=payload, headers=headers, timeout=5)
+
+        if post_resp.status_code == 200:
+            logger.info(f"Updated description for {event_id}")
+            return True
+        else:
+            logger.error(
+                f"Failed to update description for {event_id}: {post_resp.status_code} {post_resp.text}"
+            )
+            return False
+
+    except Exception as e:
+        logger.error(f"Error updating description for {event_id}: {e}")
+        return False
