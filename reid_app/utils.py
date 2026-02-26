@@ -75,15 +75,14 @@ def crop_image_from_box(image_frame, box=None, data_box=None):
             # Add a 10% margin to avoid chopping heads/feet
             margin_w = int((x2 - x1) * 0.10)
             margin_h = int((y2 - y1) * 0.10)
-            logger.debug(f"Utils: Margins: w={margin_w}, h={margin_h}")
 
+            # Apply margins and clamp strictly to image boundaries
             cx1 = max(0, x1 - margin_w)
             cy1 = max(0, y1 - margin_h)
             cx2 = min(w, x2 + margin_w)
             cy2 = min(h, y2 + margin_h)
-            logger.debug(f"Utils: Final crop with margin: [{cx1}:{cx2}, {cy1}:{cy2}]")
 
-            # Only crop if it's actually smaller than the full frame
+            # Only crop if valid dimensions and it's actually smaller than the full frame
             if cx2 > cx1 and cy2 > cy1 and (cx2 - cx1 < w or cy2 - cy1 < h):
                 logger.info(f"Utils: Applying crop [{cx1}:{cx2}, {cy1}:{cy2}]")
                 return image_frame[cy1:cy2, cx1:cx2]
