@@ -76,6 +76,15 @@ class ReIDRepository(ABC):
         pass
 
     @abstractmethod
+    def delete_event(self, event_id: str) -> bool:
+        """
+        Delete an event and its history from the database.
+        :param event_id: The event to delete
+        :return: True if successful, False otherwise
+        """
+        pass
+
+    @abstractmethod
     def get_all_label_history(self) -> List[Dict[str, Any]]:
         """Retrieve all label history globally."""
         pass

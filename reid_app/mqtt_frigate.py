@@ -7,6 +7,7 @@ import numpy as np
 import paho.mqtt.client as mqtt
 import logging
 import threading
+import time
 from datetime import datetime
 from .config import settings
 from .database.interface import ReIDRepository
@@ -43,6 +44,7 @@ class MQTTWorker:
         self.db_repo = db_repo
         self.client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
         self.frigate_url = settings.frigate_url.rstrip("/")
+        self.processed_timestamps = {}
 
         # Callbacks
         self.client.on_connect = self.on_connect
@@ -70,7 +72,7 @@ class MQTTWorker:
         """Processes a single event in a separate thread."""
         try:
             snapshot_url = (
-                f"{self.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1"
+                f"{self.frigate_url}/api/events/{event_id}/snapshot.jpg?crop=1&bbox=1"
             )
             logger.info(f"[{event_id}] Fetching cropped snapshot from: {snapshot_url}")
             response = requests.get(snapshot_url, timeout=10)
@@ -108,6 +110,19 @@ class MQTTWorker:
 
                 should_update_frigate = False
                 if match:
+                    # Self-Learning Logic: if confidence is very high, learn this new appearance
+                    if score >= settings.self_learning_threshold:
+                        with self.reid_core.lock:
+                            current_count = self.reid_core.gallery_labels.count(match)
+
+                        if current_count < settings.max_gallery_per_identity:
+                            logger.info(
+                                f"[{event_id}] Self-learning triggered for '{match}' (Score: {score:.3f} >= {settings.self_learning_threshold})"
+                            )
+                            self.reid_core.update_gallery(
+                                match, embedding, save_to_disk=True, frame=image_frame
+                            )
+
                     if not existing_sub_label:
                         should_update_frigate = True
                     elif (
@@ -171,18 +186,22 @@ class MQTTWorker:
                 if match:
                     display_score = score
                     if update_success:
-                         status_msg = f"Auto-labeled '{match}'"
+                        status_msg = f"Auto-labeled '{match}'"
                     elif should_update_frigate and not update_success:
-                         status_msg = f"Failed to auto-label '{match}' (API Error)"
+                        status_msg = f"Failed to auto-label '{match}' (API Error)"
                     elif existing_sub_label == match:
-                         status_msg = f"Verified '{match}'"
+                        status_msg = f"Verified '{match}'"
                     else:
-                         status_msg = f"Possible match '{match}' (conflicts with '{existing_sub_label}')"
+                        status_msg = f"Possible match '{match}' (conflicts with '{existing_sub_label}')"
                 else:
                     # No match found above threshold
-                    closest_label, closest_score = self.reid_core.find_closest_match(embedding)
+                    closest_label, closest_score = self.reid_core.find_closest_match(
+                        embedding
+                    )
                     if closest_label:
-                        status_msg = f"Possible match '{closest_label}' - Low confidence"
+                        status_msg = (
+                            f"Possible match '{closest_label}' - Low confidence"
+                        )
                         display_score = closest_score
                     else:
                         status_msg = "No match found"
@@ -241,25 +260,40 @@ class MQTTWorker:
             label = after.get("label", "unknown")
             has_snapshot = after.get("has_snapshot", False)
             sub_label = after.get("sub_label", None)
+            if isinstance(sub_label, list) and len(sub_label) > 0:
+                sub_label = sub_label[0]
 
             # Additional bounding box info for manual cropping
-            box = after.get("box", [])
+            snapshot_box = after.get("snapshot", {}).get("box")
+            box = snapshot_box if snapshot_box else after.get("box", [])
             data_box = after.get("data", {}).get("box", [])
 
             # Print every single MQTT message about an event going through (useful for debugging)
             if after:
-                logger.info(
+                logger.debug(
                     f"[MQTT msg] incoming update for event {event_id} | cam: {camera} | label: {label} | has_snapshot: {has_snapshot} | sub_label: {sub_label}"
                 )
+
+            # Cleanup expired timestamps (keep if within 10s)
+            now = time.time()
+            self.processed_timestamps = {
+                k: v for k, v in self.processed_timestamps.items() if now - v < 60
+            }
 
             # Filter logic: only process when snapshot is available
             # Note: We now allow events with existing sub_label to pass through for high-confidence overrides
             if after and label == "person" and has_snapshot:
                 # Prevent infinite loops: If the sub_label was already assigned by us (indicated by description)
                 # or if the timestamp just updated but the sub_label is identical, avoid unnecessary re-inference
-                # Unfortunately Frigate MQTT doesn't send 'description' in the event payload.
-                # As a workaround to avoid infinite loops, we can track recent event_ids we've processed in memory,
-                # but an easier way is to just let it re-evaluate and if the label matches our inference, it ignores it.
+
+                # Debounce: avoid processing the exact same event more than once every 10 seconds
+                if (
+                    event_id in self.processed_timestamps
+                    and now - self.processed_timestamps[event_id] < 10.0
+                ):
+                    return
+
+                self.processed_timestamps[event_id] = now
 
                 logger.info(
                     f"[{event_id}] Match! Event meets all criteria for ReID. Spawning inference thread."

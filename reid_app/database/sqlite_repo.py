@@ -90,7 +90,15 @@ class SQLiteRepository(ReIDRepository):
                     INSERT INTO events (id, camera, timestamp, snapshot_path, current_label, image_hash, vector)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                    (event_id, camera, timestamp, snapshot_path, label, image_hash, vector),
+                    (
+                        event_id,
+                        camera,
+                        timestamp,
+                        snapshot_path,
+                        label,
+                        image_hash,
+                        vector,
+                    ),
                 )
                 conn.commit()
                 logger.debug(f"Event {event_id} added successfully.")
@@ -122,7 +130,9 @@ class SQLiteRepository(ReIDRepository):
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("SELECT id, current_label, vector, snapshot_path, timestamp FROM events WHERE vector IS NOT NULL")
+            cursor.execute(
+                "SELECT id, current_label, vector, snapshot_path, timestamp FROM events WHERE vector IS NOT NULL"
+            )
             return [dict(row) for row in cursor.fetchall()]
 
     def get_event(self, event_id: str) -> Optional[Dict[str, Any]]:
@@ -242,6 +252,24 @@ class SQLiteRepository(ReIDRepository):
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM events ORDER BY timestamp DESC")
             return [dict(row) for row in cursor.fetchall()]
+
+    def delete_event(self, event_id: str) -> bool:
+        """Delete an event and its history from the database."""
+        try:
+            with self._connect() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM events WHERE id = ?", (event_id,))
+
+                if cursor.rowcount > 0:
+                    conn.commit()
+                    logger.info(f"Deleted event {event_id} from database.")
+                    return True
+                else:
+                    logger.warning(f"Event {event_id} not found for deletion.")
+                    return False
+        except Exception as e:
+            logger.error(f"Failed to delete event {event_id}: {e}")
+            return False
 
     def get_all_label_history(self) -> List[Dict[str, Any]]:
         with self._connect() as conn:

@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     unknown_dir: str = "/models/unknown"
     device_name: str = "GPU"
 
+    # New settings for Reranking and Self-Learning
+    use_rerank: bool = True
+    rerank_k: int = 5
+    self_learning_threshold: float = 0.80
+    max_gallery_per_identity: int = 15
+    use_tta: bool = True
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
